@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-search-providers
+      name: '@aero123421/dsh-search-providers'
