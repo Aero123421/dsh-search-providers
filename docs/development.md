@@ -45,6 +45,10 @@ npm run test:native
 npm pack
 ```
 
-`dist` はGit管理します。利用者のインストール時にビルドは走りません。公開先が決まったらREADMEの導入例をGitHub指定に変更できます。
+`dist` はGit管理します。利用者のインストール時にビルドは走りません。GitHubからインストールできます。
+
+```sh
+dsh plugin --profile web add -w github:Aero123421/dsh-search-providers
+```
 
 UI部品を更新するときは `upstream.json` のcommitとversionを更新し、ビルド・互換・ブラウザ検証を行います。API更新は各社の公式仕様と `docs/providers.md` を確認します。

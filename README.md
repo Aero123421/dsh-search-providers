@@ -6,13 +6,11 @@ DeepSeek Harnessで検索先を選ぶプラグインです。Keenable、Nimble�
 
 ## インストール
 
-ビルド済みファイルを含むローカルディレクトリを追加します。
-
 ```sh
-dsh plugin --profile web add -w ./dsh-search-providers
+dsh plugin --profile web add -w github:Aero123421/dsh-search-providers
 ```
 
-DSHを再起動し、「設定 → 検索プロバイダー」を開きます。
+ビルド済みファイルを含むため、インストール時のビルドは不要です。DSHを再起動し、「設定 → 検索プロバイダー」を開きます。
 
 ## 使い方
 
