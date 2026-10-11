@@ -13,7 +13,7 @@ npm run test:browser
 npm run test:native
 ```
 
-`test:native` はPATH上の `dsh` を使います。`DSH_HOME`を一時ディレクトリに設定し、実際のWebプロファイルにプラグインを追加します。通常のDSH設定には書き込みません。テスト用APIキーは架空の値で、外部APIへ送信しません。
+`test:native` はPATH上の `dsh` と `pnpm` を使います。`DSH_HOME`を一時ディレクトリに設定し、実際のWebプロファイルにプラグインを追加します。通常のDSH設定には書き込みません。テスト用APIキーは架空の値で、外部APIへ送信しません。
 
 既存のChromiumを使う場合は `PLAYWRIGHT_CHROMIUM_EXECUTABLE` で実行ファイルを指定できます。
 
