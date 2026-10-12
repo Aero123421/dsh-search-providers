@@ -1,5 +1,6 @@
 import { SearchError, object, providerOf, type Capability, type ProviderId, type Source, type SearchResult } from './catalog.ts'
 import { httpUrl, publicUrl, jsonRequest, RequestGate, type Transport } from './http.ts'
+import { xPostId, xSources } from './fxtwitter.ts'
 
 const SNIPPET_LIMIT = 6000
 const TEXT_LIMIT = 100_000
@@ -60,6 +61,7 @@ export class SearchAdapter {
   dispose(): void { this.lifetime.abort(new SearchError('unavailable', 'Search plugin unloaded')) }
   private async headers(): Promise<Record<string, string>> {
     if (!this.available()) throw new SearchError('provider-disabled', `${providerOf(this.options.id).label} is disabled`)
+    if (this.options.id === 'fxtwitter') return { accept: 'application/json' }
     const key = await this.options.resolveKey()
     if (!key && !providerOf(this.options.id).keyOptional) throw new SearchError('missing-key', `No API key for ${providerOf(this.options.id).label}`)
     const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json' }
@@ -83,6 +85,7 @@ export class SearchAdapter {
   }
   async search(request: { query: string; maxResults?: number }, signal?: AbortSignal, capability?: Capability): Promise<SearchResult> {
     const { query } = request, limit = request.maxResults ?? 8, id = this.options.id
+    if (providerOf(id).webSearch === false) throw new SearchError('unsupported-capability', 'This provider does not support web search')
     if (typeof query !== 'string' || !query.trim() || query.length > (id === 'brave' ? 600 : 2000)
       || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new SearchError('invalid-request', 'Invalid search query or result limit')
     if (capability && !providerOf(id).capabilities.includes(capability)) throw new SearchError('unsupported-capability', 'This provider does not support the selected capability')
@@ -113,8 +116,40 @@ export class SearchAdapter {
         break
       }
       case 'perplexity': response = await this.request('https://api.perplexity.ai/search', { query, search_type: capability === 'people' ? 'people' : 'web', max_results: Math.min(limit, 20) }, signal); break
+      case 'fxtwitter': throw new SearchError('unsupported-capability', 'Use x_search for FxTwitter')
     }
     return normalized(list(response.results), limit, id, capability)
+  }
+  async xSearch(request: { query: string; sort?: string; maxResults?: number }, signal?: AbortSignal): Promise<SearchResult> {
+    if (this.options.id !== 'fxtwitter') throw new SearchError('unsupported-capability', 'This provider does not support X search')
+    const { query } = request, limit = request.maxResults ?? 8, sort = request.sort ?? 'latest'
+    if (typeof query !== 'string' || !query.trim() || query.length > 8192 || !['latest', 'top'].includes(sort)
+      || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new SearchError('invalid-request', 'Invalid X search query, order, or result limit')
+    const id = xPostId(query.trim())
+    const endpoint = new URL(id ? `https://api.fxtwitter.com/2/status/${id}` : 'https://api.fxtwitter.com/2/search')
+    if (!id) {
+      if (query.trim().length > 512) throw new SearchError('invalid-request', 'X search queries must be at most 512 characters')
+      endpoint.searchParams.set('q', query.trim()); endpoint.searchParams.set('feed', sort); endpoint.searchParams.set('count', String(limit))
+    }
+    let response: Record<string, unknown>
+    try { response = await this.request(endpoint, undefined, signal) }
+    catch (error) {
+      if (error instanceof SearchError && error.status === 404) throw new SearchError(id ? 'x-post-unavailable' : 'x-search-unavailable', id ? 'FxTwitter could not retrieve this post' : 'FxTwitter could not retrieve search results; it does not distinguish no matches from unavailable search', 404)
+      throw error
+    }
+    if (response.code !== 200) {
+      if (response.code === 404) throw new SearchError(id ? 'x-post-unavailable' : 'x-search-unavailable', id ? 'FxTwitter could not retrieve this post' : 'FxTwitter could not retrieve search results; it does not distinguish no matches from unavailable search', 404)
+      throw new SearchError('provider-failed', 'FxTwitter returned an unsuccessful response')
+    }
+    if (id) {
+      if (response.status === null) throw new SearchError('x-post-unavailable', 'FxTwitter could not retrieve this post')
+      const post = object(response.status)
+      if (post.type === 'tombstone') throw new SearchError('x-post-unavailable', 'FxTwitter could not retrieve this post')
+      if (post.id !== id) throw new SearchError('invalid-response', 'FxTwitter returned a different post')
+      return xSources([post], 1)
+    }
+    const cursor = response.cursor === undefined || response.cursor === null ? {} : object(response.cursor)
+    return xSources(list(response.results), limit, typeof cursor.bottom === 'string' && cursor.bottom.length > 0)
   }
   async extract(input: string, signal?: AbortSignal): Promise<ExtractResult> {
     const url = publicUrl(input), id = this.options.id

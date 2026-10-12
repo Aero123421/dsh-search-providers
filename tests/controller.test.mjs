@@ -18,7 +18,7 @@ test('Failed refresh retains the existing provider list', async () => {
   let fail = false
   const controller = new SearchController({ rpc: { call: async () => { if (fail) throw new Error('offline'); return { ok: true, value: snapshot(1) } } } })
   await controller.load(); fail = true; await controller.refresh()
-  assert.equal(controller.getSnapshot().snapshot.entries.length, 7); assert.equal(controller.getSnapshot().error, 'loadFailed')
+  assert.equal(controller.getSnapshot().snapshot.entries.length, 8); assert.equal(controller.getSnapshot().error, 'loadFailed')
   controller.dispose()
 })
 test('Malformed wire snapshots produce a load error', async () => {

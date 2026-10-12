@@ -1,5 +1,5 @@
 export const NS = 'dsh-search-providers'
-export const CAPABILITIES = ['news', 'papers', 'code', 'people', 'companies', 'images', 'videos', 'extract', 'map'] as const
+export const CAPABILITIES = ['news', 'papers', 'code', 'people', 'companies', 'images', 'videos', 'extract', 'map', 'x'] as const
 export type Capability = typeof CAPABILITIES[number]
 export const PROVIDERS = [
   { id: 'keenable', label: 'Keenable', env: 'KEENABLE_API_KEY', keyOptional: true, capabilities: ['extract'] },
@@ -9,9 +9,10 @@ export const PROVIDERS = [
   { id: 'exa', label: 'Exa', env: 'EXA_API_KEY', capabilities: ['news', 'papers', 'people', 'companies', 'extract'] },
   { id: 'brave', label: 'Brave', env: 'BRAVE_API_KEY', capabilities: ['news', 'images', 'videos'] },
   { id: 'perplexity', label: 'Perplexity', env: 'PERPLEXITY_API_KEY', capabilities: ['people'] },
-] as const satisfies readonly { id: string; label: string; env: string; keyOptional?: boolean; capabilities: readonly Capability[] }[]
+  { id: 'fxtwitter', label: 'FxTwitter', keyOptional: true, webSearch: false, capabilities: ['x'] },
+] as const satisfies readonly { id: string; label: string; env?: string; keyOptional?: boolean; webSearch?: boolean; capabilities: readonly Capability[] }[]
 export type ProviderId = typeof PROVIDERS[number]['id']
-export type Provider = { id: ProviderId; label: string; env: string; keyOptional?: boolean; capabilities: readonly Capability[] }
+export type Provider = { id: ProviderId; label: string; env?: string; keyOptional?: boolean; webSearch?: boolean; capabilities: readonly Capability[] }
 export function providerOf(id: unknown): Provider {
   const provider = PROVIDERS.find(row => row.id === id)
   if (!provider) throw new SearchError('invalid-request', 'Unknown search provider')
@@ -28,7 +29,7 @@ export class SearchError extends Error {
   readonly status: number | undefined
   constructor(code: string, message: string, status?: number) { super(message); this.code = code; this.status = status }
 }
-export interface Source { url: string; title?: string; snippet?: string; publishedAt?: string; mediaUrl?: string; authors?: string[]; year?: number; venue?: string; doi?: string }
+export interface Source { url: string; title?: string; snippet?: string; publishedAt?: string; mediaUrl?: string; authors?: string[]; year?: number; venue?: string; doi?: string; author?: string; authorHandle?: string; likes?: number; reposts?: number; replies?: number; views?: number }
 export interface SearchResult { sources: Source[]; truncated: boolean }
 export interface ProviderSettings { enabled?: boolean }
 export interface ToolSettings { provider: ProviderId; enabled: boolean }

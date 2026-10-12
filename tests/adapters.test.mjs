@@ -5,7 +5,7 @@ import { PROVIDERS, validateSettings } from '../src/catalog.ts'
 import { jsonRequest, MAX_RESPONSE_BYTES, publicUrl, RequestGate } from '../src/http.ts'
 
 const fixture = { url: 'https://example.com/article', title: 'Example', snippet: 'Snippet', description: 'Description', highlights: ['Highlight'], excerpts: ['Excerpt'], date: '2026-10-10', publishedDate: '2026-10-10', publish_date: '2026-10-10' }
-for (const provider of PROVIDERS) test(`${provider.label}: API request and standard source projection`, async () => {
+for (const provider of PROVIDERS.filter(row => row.webSearch !== false)) test(`${provider.label}: API request and standard source projection`, async () => {
   let sent
   const adapter = new SearchAdapter({ id: provider.id, enabled: () => true, resolveKey: async () => 'test-key', transport: async (url, init) => {
     sent = { url: new URL(url), ...init }; return Response.json(provider.id === 'brave' ? { web: { results: [fixture] } } : { results: [fixture] })

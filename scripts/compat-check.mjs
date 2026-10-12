@@ -7,10 +7,20 @@ const originalFetch = globalThis.fetch
 try {
   const nativeSearch = ctx.tools.get('web_search'), nativeFetch = ctx.tools.get('web_fetch')
   const prompt = await ctx.systemPrompt.assemble()
-  assert.equal((await rpc('list')).entries.length, 7)
+  assert.equal((await rpc('list')).entries.length, 8)
   assert.equal(ctx.tools.get('search_news'), undefined)
-  await rpc('save-key', { provider: 'exa', key: 'fixture-secret-key' })
+  assert.equal(ctx.tools.get('x_search'), undefined)
   let snapshot = await rpc('list')
+  const fxEntry = snapshot.entries.find(row => row.id === 'fxtwitter')
+  assert.equal(fxEntry.webSearch, false); assert.equal(fxEntry.supportsKeys, false)
+  await assert.rejects(rpc('save-key', { provider: 'fxtwitter', key: 'must-not-store' }))
+  await rpc('provider', { provider: 'fxtwitter', enabled: true, revision: snapshot.revision }); snapshot = await rpc('list')
+  await assert.rejects(rpc('default', { provider: 'fxtwitter', revision: snapshot.revision, searchRevision: snapshot.searchRevision }))
+  assert.equal(entry.options.config.searchProvider, 'deepseek')
+  await rpc('tool', { provider: 'fxtwitter', capability: 'x', enabled: true, revision: snapshot.revision })
+  assert.ok(ctx.tools.get('x_search'))
+  await rpc('save-key', { provider: 'exa', key: 'fixture-secret-key' })
+  snapshot = await rpc('list')
   assert.equal(snapshot.entries.find(row => row.id === 'exa').configured, true)
   assert.equal(JSON.stringify(snapshot).includes('fixture-secret-key'), false)
   await rpc('provider', { provider: 'exa', enabled: true, revision: snapshot.revision })
@@ -22,6 +32,13 @@ try {
   assert.deepEqual((await ctx.systemPrompt.assemble()).sections, prompt.sections)
   let requests = 0
   globalThis.fetch = async (_url, init) => {
+    const url = new URL(_url)
+    if (url.hostname === 'api.fxtwitter.com') {
+      assert.equal(init.headers.authorization, undefined)
+      if (url.searchParams.get('q') === 'unavailable') return Response.json({ code: 404, results: [] }, { status: 404 })
+      const post = { type: 'status', id: '20', text: 'Fixture X post', created_at: '2026-10-12T00:00:00Z', author: { name: 'Fixture author', screen_name: 'fixture' }, likes: 1 }
+      return Response.json(url.pathname === '/2/search' ? { code: 200, results: [post] } : { code: 200, status: post })
+    }
     const body = JSON.parse(init.body); requests++
     if (requests === 1) assert.equal(body.category, 'publication')
     return Response.json({ results: [{ url: `https://example.com/${body.query}`, title: body.query, highlights: ['source excerpt'] }] })
@@ -30,6 +47,19 @@ try {
   await fixture.fiber.dispose()
   const plugin = await import('../dist/index.js')
   fixture.fiber = ctx.plugin({ inject: plugin.inject, apply: child => plugin.apply(child, { providers: { get: () => value.providers }, tools: { get: () => value.tools } }) }); await fixture.fiber.await()
+  const x = ctx.tools.get('x_search')
+  const xResult = await x.execute({ query: 'example', sort: 'top', max_results: 2 }, { signal: new AbortController().signal })
+  assert.equal(xResult.sources[0].url, 'https://x.com/fixture/status/20'); assert.equal(xResult.sources[0].likes, 1)
+  assert.ok(x.output.render({ query: 'example' }, xResult)[0].text.includes('Fixture X post'))
+  const xMeta = x.output.presentationMeta({ query: 'example' }, xResult)
+  assert.equal(x.presentResult({ query: 'example' }, { content: [], meta: xMeta }).card, 'web')
+  assert.equal((await x.execute({ query: 'https://x.com/jack/status/20' }, { signal: new AbortController().signal })).sources[0].snippet, 'Fixture X post')
+  await assert.rejects(x.execute({ query: 'unavailable' }, { signal: new AbortController().signal }), error => error.code === 'x-search-unavailable')
+  snapshot = await rpc('list')
+  await rpc('provider', { provider: 'fxtwitter', enabled: false, revision: snapshot.revision })
+  assert.equal(ctx.tools.get('x_search'), undefined)
+  snapshot = await rpc('list'); assert.equal(snapshot.tools.x.enabled, true)
+  await rpc('provider', { provider: 'fxtwitter', enabled: true, revision: snapshot.revision }); assert.ok(ctx.tools.get('x_search'))
   const paper = ctx.tools.get('search_papers')
   const paperResult = await paper.execute({ query: 'research' }, { signal: new AbortController().signal })
   assert.equal(paperResult.sources[0].url, 'https://example.com/research')
@@ -50,5 +80,5 @@ try {
   assert.equal(entry.options.config.searchProvider, 'deepseek')
   await fixture.fiber.dispose()
   assert.equal((await fixture.handler.fetch(new Request('http://localhost/api/dsh-search-providers/list', { method: 'POST' }))).status, 404)
-  console.log('Official Cordis, Credentials, web_search/fetch, citations/replay, unchanged prompt sections, feature registration, default selection, and unload passed')
+  console.log('Official Cordis, Credentials, web_search/fetch, x_search keyword/URL/error paths, citations/replay, unchanged prompt sections, feature registration, default selection, and unload passed')
 } finally { globalThis.fetch = originalFetch; await fixture.dispose() }

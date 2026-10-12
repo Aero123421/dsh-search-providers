@@ -110,8 +110,8 @@ export function SearchSettings({ controller, locale }: PageProps) {
           <Switch label={`${t('enable')}: ${row.label}`} checked={row.enabled} disabled={busy || (!row.enabled && !row.configured && !row.keyOptional)} onChange={enabled => { void save('provider', { provider: row.id, enabled }) }} /></div>
         <div className="dsh-search-status"><StateDot state={row.configured || row.keyOptional ? 'done' : 'pending'} size={10} /><span>{t(row.configured ? 'keySaved' : row.keyOptional ? 'keyOptional' : 'keyMissing')}</span>{row.source && row.source !== 'saved' && <span>{row.source}</span>}</div>
         <div className="dsh-search-actions">
-          <Button variant="outline" size="sm" disabled={busy || !row.writable} onClick={() => setDialog({ kind: 'key', provider: row.id })}>{t(row.configured ? 'editKey' : 'saveKey')}</Button>
-          {snapshot.searchProvider !== providerRoute(row.id) && <Button variant="outline" size="sm" disabled={busy || !row.enabled} onClick={() => { void save('default', { provider: row.id }) }}>{t('setDefault')}</Button>}
+          {row.supportsKeys && <Button variant="outline" size="sm" disabled={busy || !row.writable} onClick={() => setDialog({ kind: 'key', provider: row.id })}>{t(row.configured ? 'editKey' : 'saveKey')}</Button>}
+          {row.webSearch && snapshot.searchProvider !== providerRoute(row.id) && <Button variant="outline" size="sm" disabled={busy || !row.enabled} onClick={() => { void save('default', { provider: row.id }) }}>{t('setDefault')}</Button>}
           <Button variant="outline" size="sm" disabled={busy} onClick={() => setDialog({ kind: 'features', provider: row.id })}>{t('selectTools')}</Button>
         </div>
       </article>)}

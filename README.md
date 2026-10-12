@@ -2,6 +2,8 @@
 
 DeepSeek Harnessで検索先を選ぶプラグインです。Keenable、Nimble、TinyFish、Parallel、Exa、Brave、Perplexityに対応します。
 
+FxTwitterの `x_search` で、Xの投稿検索と投稿URLからの本文取得もできます。
+
 通常の `web_search` はDSHの既存ツールを使います。複数クエリの処理、結果カード、出典、会話履歴、システムプロンプトを維持します。対応版はDSH `0.2.1-alpha.2`です。
 
 ## インストール
@@ -11,6 +13,8 @@ dsh plugin --profile web add -w github:Aero123421/dsh-search-providers
 ```
 
 ビルド済みファイルを含むため、インストール時のビルドは不要です。DSHを再起動し、「設定 → 検索プロバイダー」を開きます。
+
+特定の版を使う場合は `github:Aero123421/dsh-search-providers#v0.2.0` を指定できます。[配布ファイル](https://github.com/Aero123421/dsh-search-providers/releases/tag/v0.2.0)も用意しています。
 
 ## 使い方
 
@@ -36,12 +40,30 @@ APIキーはDSHの資格情報ストアに保存します。画面にキーの�
 | 画像・動画検索 | Brave |
 | ページ本文取得 | Keenable、Nimble、TinyFish、Parallel、Exa |
 | サイト内のページ一覧 | Nimble |
+| X検索・投稿URLの本文取得 | FxTwitter |
 
 追加機能は最初はすべて無効です。有効な機能だけエージェントにツールとして渡します。ニュース・論文検索も追加ツールとして登録し、標準 `web_search` の入力を変えません。`web_fetch` もDSH標準のままです。
 
 本文取得は独立した `extract_web_page` です。外部APIが対象ページのHTTPステータスを返さない場合があるため、標準 `web_fetch` の代わりにはしません。外部の調査エージェント、ブラウザ操作、クロール、定期監視は含めていません。
 
 [API仕様と対応範囲](docs/providers.md) · [開発と検証](docs/development.md)
+
+## X検索
+
+「設定 → 検索プロバイダー」でFxTwitterを有効にし、「使う機能を選ぶ → X検索」をONにします。APIキーは不要です。
+
+エージェントに `x_search` が追加されます。キーワードを渡すと投稿を検索し、X/Twitterの投稿URLを渡すとその投稿を取得します。
+
+```js
+x_search({ query: "AI from:example", sort: "latest", max_results: 8 })
+x_search({ query: "https://x.com/jack/status/20" })
+```
+
+`sort` は `latest` または `top`、`max_results` は1〜100です。省略すると新着順・8件です。投稿URLを指定した場合は1件を取得します。投稿本文、投稿者、日時、取得できた反応数と元URLを返します。欠けている反応数を0にはしません。
+
+キーワード検索はFxTwitter側で利用できない場合があります。404は「該当なし」と「取得不能」を区別できないため、エラーとして返します。投稿が存在しないとは判断しません。
+
+FxTwitterは追加ツール専用です。通常の `web_search` の検索先には設定できません。
 
 ## 元の検索先に戻す
 
@@ -57,6 +79,6 @@ dsh plugin --profile web remove -w @aero123421/dsh-search-providers
 
 LinuxのDSH Webで、インストール、検索先の切り替え、設定保存、既存検索処理、出典表示、履歴用情報、プラグインの解除を確認しています。UIは日本語・英語・中国語、ライト／ダーク、狭い画面で確認しています。
 
-Keenableはキーなしの実検索で確認しています。他の6社はモック応答での検証です。実APIキー、検索品質の比較、Windows・macOSの実機、Electron版は未検証です。
+Keenableはキーなしの実検索で確認しています。他の6社はモック応答での検証です。FxTwitterは投稿URLの実取得を確認しています。キーワード検索は実APIが404を返し、検索結果の取得成功は未確認です。実APIキー、検索品質の比較、Windows・macOSの実機、Electron版は未検証です。
 
 コードは[MIT](LICENSE)です。同梱するDSH UI部品の[著作権表示](LICENSE.DeepSeek)を保持しています。
