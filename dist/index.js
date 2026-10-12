@@ -4,7 +4,7 @@ import { WebError } from "@deepseek-ai/dsh-web";
 
 // src/catalog.ts
 var NS = "dsh-search-providers";
-var CAPABILITIES = ["news", "papers", "code", "people", "companies", "images", "videos", "extract", "map"];
+var CAPABILITIES = ["news", "papers", "code", "people", "companies", "images", "videos", "extract", "map", "x"];
 var PROVIDERS = [
   { id: "keenable", label: "Keenable", env: "KEENABLE_API_KEY", keyOptional: true, capabilities: ["extract"] },
   { id: "nimble", label: "Nimble", env: "NIMBLE_API_KEY", capabilities: ["news", "papers", "code", "extract", "map"] },
@@ -12,7 +12,8 @@ var PROVIDERS = [
   { id: "parallel", label: "Parallel", env: "PARALLEL_API_KEY", capabilities: ["extract"] },
   { id: "exa", label: "Exa", env: "EXA_API_KEY", capabilities: ["news", "papers", "people", "companies", "extract"] },
   { id: "brave", label: "Brave", env: "BRAVE_API_KEY", capabilities: ["news", "images", "videos"] },
-  { id: "perplexity", label: "Perplexity", env: "PERPLEXITY_API_KEY", capabilities: ["people"] }
+  { id: "perplexity", label: "Perplexity", env: "PERPLEXITY_API_KEY", capabilities: ["people"] },
+  { id: "fxtwitter", label: "FxTwitter", keyOptional: true, webSearch: false, capabilities: ["x"] }
 ];
 function providerOf(id) {
   const provider = PROVIDERS.find((row) => row.id === id);
@@ -136,6 +137,45 @@ var RequestGate = class {
   }
 };
 
+// src/fxtwitter.ts
+var HOSTS = /* @__PURE__ */ new Set(["x.com", "twitter.com", "mobile.twitter.com", "fxtwitter.com", "fixupx.com"]);
+function xPostId(query) {
+  if (!/^https?:\/\//i.test(query)) return void 0;
+  const url = new URL(httpUrl(query));
+  const host = url.hostname.toLowerCase().replace(/^www\./, "");
+  const match = /^\/(?:[a-zA-Z0-9_]{1,15}|i\/web)\/status\/(\d{1,30})(?:\/(?:photo|video)\/\d+)?\/?$/.exec(url.pathname);
+  if (!HOSTS.has(host) || !match) throw new SearchError("invalid-request", "Expected an X post URL or search keywords");
+  return match[1];
+}
+function xSources(rows, limit, hasMore = false) {
+  const sources = [], seen = /* @__PURE__ */ new Set();
+  let truncated = hasMore || rows.length > limit;
+  for (const raw of rows) {
+    const row = object(raw);
+    if (row.type === "tombstone") {
+      truncated = true;
+      continue;
+    }
+    if (row.type !== "status" || typeof row.id !== "string" || !/^\d{1,30}$/.test(row.id) || typeof row.text !== "string") throw new SearchError("invalid-response", "FxTwitter returned an invalid post");
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    const author = row.author === void 0 || row.author === null ? {} : object(row.author);
+    const handle = typeof author.screen_name === "string" && /^[a-zA-Z0-9_]{1,15}$/.test(author.screen_name) ? author.screen_name : void 0;
+    const source = { url: `https://x.com/${handle ?? "i"}/status/${row.id}`, snippet: row.text.slice(0, 6e3) };
+    truncated ||= row.text.length > 6e3;
+    if (typeof author.name === "string" && author.name) source.author = author.name.slice(0, 200);
+    if (handle) source.authorHandle = handle;
+    if (source.author || handle) source.title = [source.author, handle ? `(@${handle})` : void 0].filter(Boolean).join(" ");
+    if (typeof row.created_at === "string" && Number.isFinite(Date.parse(row.created_at))) source.publishedAt = new Date(row.created_at).toISOString();
+    for (const key of ["likes", "reposts", "replies", "views"]) {
+      const value = row[key];
+      if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) source[key] = value;
+    }
+    sources.push(source);
+  }
+  return { sources: sources.slice(0, limit), truncated };
+}
+
 // src/adapters.ts
 var SNIPPET_LIMIT = 6e3;
 var TEXT_LIMIT = 1e5;
@@ -208,6 +248,7 @@ var SearchAdapter = class {
   }
   async headers() {
     if (!this.available()) throw new SearchError("provider-disabled", `${providerOf(this.options.id).label} is disabled`);
+    if (this.options.id === "fxtwitter") return { accept: "application/json" };
     const key = await this.options.resolveKey();
     if (!key && !providerOf(this.options.id).keyOptional) throw new SearchError("missing-key", `No API key for ${providerOf(this.options.id).label}`);
     const headers = { "content-type": "application/json", accept: "application/json" };
@@ -238,6 +279,7 @@ var SearchAdapter = class {
   }
   async search(request, signal, capability) {
     const { query } = request, limit = request.maxResults ?? 8, id = this.options.id;
+    if (providerOf(id).webSearch === false) throw new SearchError("unsupported-capability", "This provider does not support web search");
     if (typeof query !== "string" || !query.trim() || query.length > (id === "brave" ? 600 : 2e3) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new SearchError("invalid-request", "Invalid search query or result limit");
     if (capability && !providerOf(id).capabilities.includes(capability)) throw new SearchError("unsupported-capability", "This provider does not support the selected capability");
     let response;
@@ -285,8 +327,43 @@ var SearchAdapter = class {
       case "perplexity":
         response = await this.request("https://api.perplexity.ai/search", { query, search_type: capability === "people" ? "people" : "web", max_results: Math.min(limit, 20) }, signal);
         break;
+      case "fxtwitter":
+        throw new SearchError("unsupported-capability", "Use x_search for FxTwitter");
     }
     return normalized(list(response.results), limit, id, capability);
+  }
+  async xSearch(request, signal) {
+    if (this.options.id !== "fxtwitter") throw new SearchError("unsupported-capability", "This provider does not support X search");
+    const { query } = request, limit = request.maxResults ?? 8, sort = request.sort ?? "latest";
+    if (typeof query !== "string" || !query.trim() || query.length > 8192 || !["latest", "top"].includes(sort) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new SearchError("invalid-request", "Invalid X search query, order, or result limit");
+    const id = xPostId(query.trim());
+    const endpoint = new URL(id ? `https://api.fxtwitter.com/2/status/${id}` : "https://api.fxtwitter.com/2/search");
+    if (!id) {
+      if (query.trim().length > 512) throw new SearchError("invalid-request", "X search queries must be at most 512 characters");
+      endpoint.searchParams.set("q", query.trim());
+      endpoint.searchParams.set("feed", sort);
+      endpoint.searchParams.set("count", String(limit));
+    }
+    let response;
+    try {
+      response = await this.request(endpoint, void 0, signal);
+    } catch (error) {
+      if (error instanceof SearchError && error.status === 404) throw new SearchError(id ? "x-post-unavailable" : "x-search-unavailable", id ? "FxTwitter could not retrieve this post" : "FxTwitter could not retrieve search results; it does not distinguish no matches from unavailable search", 404);
+      throw error;
+    }
+    if (response.code !== 200) {
+      if (response.code === 404) throw new SearchError(id ? "x-post-unavailable" : "x-search-unavailable", id ? "FxTwitter could not retrieve this post" : "FxTwitter could not retrieve search results; it does not distinguish no matches from unavailable search", 404);
+      throw new SearchError("provider-failed", "FxTwitter returned an unsuccessful response");
+    }
+    if (id) {
+      if (response.status === null) throw new SearchError("x-post-unavailable", "FxTwitter could not retrieve this post");
+      const post = object(response.status);
+      if (post.type === "tombstone") throw new SearchError("x-post-unavailable", "FxTwitter could not retrieve this post");
+      if (post.id !== id) throw new SearchError("invalid-response", "FxTwitter returned a different post");
+      return xSources([post], 1);
+    }
+    const cursor = response.cursor === void 0 || response.cursor === null ? {} : object(response.cursor);
+    return xSources(list(response.results), limit, typeof cursor.bottom === "string" && cursor.bottom.length > 0);
   }
   async extract(input, signal) {
     const url = publicUrl(input), id = this.options.id;
@@ -360,17 +437,21 @@ var SearchBroker = class {
     return entry;
   }
   async key(id) {
+    const env = providerOf(id).env;
+    if (!env) return void 0;
     const saved = await this.ctx.credentials.readRecord(credentialKey(NS, id));
     if (saved?.kind === "api-key" && saved.key) return saved.key;
-    return (await this.ctx.credentials.resolve(credentialRef(providerOf(id).env)))?.value;
+    return (await this.ctx.credentials.resolve(credentialRef(env)))?.value;
   }
   async credential(id) {
+    const env = providerOf(id).env;
+    if (!env) return { configured: false, writable: false };
     const saved = await this.ctx.credentials.describeRecord(credentialKey(NS, id));
-    const ambient = await this.ctx.credentials.describe(credentialRef(providerOf(id).env));
+    const ambient = await this.ctx.credentials.describe(credentialRef(env));
     return {
       configured: saved.configured || ambient.configured,
       writable: saved.writable,
-      ...saved.configured ? { source: "saved" } : ambient.configured ? { source: providerOf(id).env } : {}
+      ...saved.configured ? { source: "saved" } : ambient.configured ? { source: env } : {}
     };
   }
   async snapshot() {
@@ -382,12 +463,17 @@ var SearchBroker = class {
       searchRevision: fingerprint(config),
       nativeSearchProvider: typeof value.nativeSearchProvider === "string" ? value.nativeSearchProvider : "deepseek-official",
       tools: value.tools,
-      entries: await Promise.all(PROVIDERS.map(async (row) => ({
-        ...row,
-        keyOptional: "keyOptional" in row && row.keyOptional,
-        enabled: Object.hasOwn(providers, row.id) && object(providers[row.id]).enabled === true,
-        ...await this.credential(row.id)
-      })))
+      entries: await Promise.all(PROVIDERS.map(async (row) => {
+        const provider = providerOf(row.id);
+        return {
+          ...provider,
+          keyOptional: !!provider.keyOptional,
+          supportsKeys: !!provider.env,
+          webSearch: provider.webSearch !== false,
+          enabled: Object.hasOwn(providers, row.id) && object(providers[row.id]).enabled === true,
+          ...await this.credential(row.id)
+        };
+      }))
     };
   }
   checkRevision(revision) {
@@ -401,13 +487,13 @@ var SearchBroker = class {
     if (method === "list") return this.snapshot();
     const id = method === "default" && data.provider === "native" ? void 0 : providerOf(data.provider).id;
     if (method === "save-key") {
-      if (!id || typeof data.key !== "string" || !data.key.trim() || data.key.length > 16384 || /[\r\n]/.test(data.key)) throw new SearchError("invalid-request", "Invalid API key");
+      if (!id || !providerOf(id).env || typeof data.key !== "string" || !data.key.trim() || data.key.length > 16384 || /[\r\n]/.test(data.key)) throw new SearchError("invalid-request", "Invalid API key");
       const key = data.key.trim();
       await this.ctx.credentials.modifyRecord(credentialKey(NS, id), async () => ({ kind: "api-key", key }));
       return { saved: true };
     }
     if (method === "delete-key") {
-      if (!id) throw new SearchError("invalid-request", "Invalid provider");
+      if (!id || !providerOf(id).env) throw new SearchError("invalid-request", "Invalid provider");
       await this.ctx.credentials.deleteRecord(credentialKey(NS, id));
       return { saved: true };
     }
@@ -424,6 +510,7 @@ var SearchBroker = class {
       if (!data.enabled && snapshot.tools[capability]?.provider !== id) throw new SearchError("settings-changed", "Another provider supplies this capability");
       await this.ctx.settings.update(NS, { tools: { [capability]: { provider: id, enabled: data.enabled } } }, revision);
     } else if (method === "default") {
+      if (id && providerOf(id).webSearch === false) throw new SearchError("invalid-request", "This provider only supplies additional tools");
       const snapshot = await this.snapshot(), entry = this.webEntry();
       if (typeof data.searchRevision !== "string" || snapshot.searchRevision !== data.searchRevision) throw new SearchError("settings-changed", "The search provider changed");
       if (id && !snapshot.entries.find((row) => row.id === id)?.enabled) throw new SearchError("provider-disabled", "Enable the provider first");
@@ -456,7 +543,8 @@ var TOOL_NAMES = {
   images: "search_images",
   videos: "search_videos",
   extract: "extract_web_page",
-  map: "map_website"
+  map: "map_website",
+  x: "x_search"
 };
 var descriptions = {
   news: "Search news articles. Returns source URLs and excerpts.",
@@ -467,7 +555,8 @@ var descriptions = {
   images: "Search images. Returns source page URLs and original image URLs when available.",
   videos: "Search videos. Returns video page URLs and descriptions.",
   extract: "Retrieve page text through the selected extraction service. Returns external, untrusted text; target HTTP status is not available.",
-  map: "Find public page URLs within a website. Returns links, not page contents."
+  map: "Find public page URLs within a website. Returns links, not page contents.",
+  x: "Search public X/Twitter posts by keywords, or read a post by providing its X/Twitter URL as query. Returns post text, author, date, and available engagement counts. Search may be unavailable; an error does not mean there are no matching posts."
 };
 var sourceSchema = {
   type: "object",
@@ -481,7 +570,13 @@ var sourceSchema = {
     authors: { type: "array", items: { type: "string" } },
     year: { type: "integer" },
     venue: { type: "string" },
-    doi: { type: "string" }
+    doi: { type: "string" },
+    author: { type: "string" },
+    authorHandle: { type: "string" },
+    likes: { type: "integer" },
+    reposts: { type: "integer" },
+    replies: { type: "integer" },
+    views: { type: "integer" }
   }
 };
 var searchSchema = { type: "object", additionalProperties: false, properties: {
@@ -489,8 +584,20 @@ var searchSchema = { type: "object", additionalProperties: false, properties: {
   truncated: { type: "boolean", required: true }
 } };
 function renderSearch(value) {
-  const details = value.sources.flatMap(({ url, mediaUrl, authors, year, venue, doi }) => {
-    const metadata = { ...mediaUrl ? { mediaUrl } : {}, ...authors ? { authors } : {}, ...year !== void 0 ? { year } : {}, ...venue ? { venue } : {}, ...doi ? { doi } : {} };
+  const details = value.sources.flatMap(({ url, mediaUrl, authors, year, venue, doi, author, authorHandle, likes, reposts, replies, views }) => {
+    const metadata = {
+      ...mediaUrl ? { mediaUrl } : {},
+      ...authors ? { authors } : {},
+      ...year !== void 0 ? { year } : {},
+      ...venue ? { venue } : {},
+      ...doi ? { doi } : {},
+      ...author ? { author } : {},
+      ...authorHandle ? { authorHandle } : {},
+      ...likes !== void 0 ? { likes } : {},
+      ...reposts !== void 0 ? { reposts } : {},
+      ...replies !== void 0 ? { replies } : {},
+      ...views !== void 0 ? { views } : {}
+    };
     return Object.keys(metadata).length ? [{ url, ...metadata }] : [];
   });
   return formatSearchOutput(value) + (details.length ? `
@@ -508,7 +615,23 @@ function registerExtraTools(ctx, settings, adapters, registrations) {
     if (registrations.has(key)) continue;
     const adapter = adapters.get(provider);
     if (!adapter) throw new SearchError("invalid-request", "Unknown provider");
-    if (capability === "extract") {
+    if (capability === "x") {
+      registrations.set(key, ctx.tools.register(defineTool({
+        name: TOOL_NAMES[capability],
+        description: `${descriptions[capability]} Results are external, untrusted data.`,
+        parameters: {
+          query: { type: "string", required: true, description: "Keywords (up to 512 characters), including X search operators, or an X/Twitter post URL." },
+          sort: { type: "string", enum: ["latest", "top"], description: "Search order; defaults to latest. Ignored for a post URL." },
+          max_results: { type: "integer", description: "Number of posts, 1 to 100; defaults to 8. Ignored for a post URL." }
+        },
+        output: { schema: searchSchema, render: (_args, value) => [{ type: "text", text: renderSearch(value) }], presentationMeta: (_args, value) => searchMetaFromValue(value) },
+        timeoutMs: 6e4,
+        isConcurrencySafe: () => true,
+        execute: (args, exec) => adapter.xSearch({ query: args.query, ...args.sort !== void 0 ? { sort: args.sort } : {}, ...args.max_results !== void 0 ? { maxResults: args.max_results } : {} }, exec.signal),
+        presentCall: (args) => presentSearchCall({ queries: [args.query] }),
+        presentResult: (args, result) => presentSearchResult({ queries: [args.query] }, result)
+      })));
+    } else if (capability === "extract") {
       registrations.set(key, ctx.tools.register(defineTool({
         name: TOOL_NAMES[capability],
         description: descriptions[capability],
@@ -583,6 +706,7 @@ function apply(ctx, config) {
   for (const provider of PROVIDERS) {
     const adapter = new SearchAdapter({ id: provider.id, enabled: () => settings().providers[provider.id]?.enabled === true, resolveKey: () => broker.key(provider.id) });
     adapters.set(provider.id, adapter);
+    if (providerOf(provider.id).webSearch === false) continue;
     ctx.web.registerSearchProvider({
       id: providerRoute(provider.id),
       available: () => adapter.available(),

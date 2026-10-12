@@ -24,15 +24,19 @@ export class SearchBroker {
     return entry
   }
   async key(id: ProviderId): Promise<string | undefined> {
+    const env = providerOf(id).env
+    if (!env) return undefined
     const saved = await this.ctx.credentials.readRecord(credentialKey(NS, id))
     if (saved?.kind === 'api-key' && saved.key) return saved.key
-    return (await this.ctx.credentials.resolve(credentialRef(providerOf(id).env)))?.value
+    return (await this.ctx.credentials.resolve(credentialRef(env)))?.value
   }
   private async credential(id: ProviderId) {
+    const env = providerOf(id).env
+    if (!env) return { configured: false, writable: false }
     const saved = await this.ctx.credentials.describeRecord(credentialKey(NS, id))
-    const ambient = await this.ctx.credentials.describe(credentialRef(providerOf(id).env))
+    const ambient = await this.ctx.credentials.describe(credentialRef(env))
     return { configured: saved.configured || ambient.configured, writable: saved.writable,
-      ...saved.configured ? { source: 'saved' } : ambient.configured ? { source: providerOf(id).env } : {} }
+      ...saved.configured ? { source: 'saved' } : ambient.configured ? { source: env } : {} }
   }
   async snapshot(): Promise<Snapshot> {
     const section = this.section(), value = object(section.value), providers = object(value.providers ?? {}), config = this.webEntry().options.config ?? {}
@@ -41,8 +45,11 @@ export class SearchBroker {
       revision: section.revision, searchProvider, searchRevision: fingerprint(config),
       nativeSearchProvider: typeof value.nativeSearchProvider === 'string' ? value.nativeSearchProvider : 'deepseek-official',
       tools: value.tools as Settings['tools'],
-      entries: await Promise.all(PROVIDERS.map(async row => ({ ...row, keyOptional: 'keyOptional' in row && row.keyOptional,
-        enabled: Object.hasOwn(providers, row.id) && object(providers[row.id]).enabled === true, ...await this.credential(row.id) }))),
+      entries: await Promise.all(PROVIDERS.map(async row => {
+        const provider = providerOf(row.id)
+        return { ...provider, keyOptional: !!provider.keyOptional, supportsKeys: !!provider.env, webSearch: provider.webSearch !== false,
+          enabled: Object.hasOwn(providers, row.id) && object(providers[row.id]).enabled === true, ...await this.credential(row.id) }
+      })),
     }
   }
   private checkRevision(revision: unknown): number {
@@ -56,13 +63,13 @@ export class SearchBroker {
     if (method === 'list') return this.snapshot()
     const id = method === 'default' && data.provider === 'native' ? undefined : providerOf(data.provider).id
     if (method === 'save-key') {
-      if (!id || typeof data.key !== 'string' || !data.key.trim() || data.key.length > 16384 || /[\r\n]/.test(data.key)) throw new SearchError('invalid-request', 'Invalid API key')
+      if (!id || !providerOf(id).env || typeof data.key !== 'string' || !data.key.trim() || data.key.length > 16384 || /[\r\n]/.test(data.key)) throw new SearchError('invalid-request', 'Invalid API key')
       const key = data.key.trim()
       await this.ctx.credentials.modifyRecord(credentialKey(NS, id), async () => ({ kind: 'api-key', key }))
       return { saved: true }
     }
     if (method === 'delete-key') {
-      if (!id) throw new SearchError('invalid-request', 'Invalid provider')
+      if (!id || !providerOf(id).env) throw new SearchError('invalid-request', 'Invalid provider')
       await this.ctx.credentials.deleteRecord(credentialKey(NS, id))
       return { saved: true }
     }
@@ -79,6 +86,7 @@ export class SearchBroker {
       if (!data.enabled && snapshot.tools[capability]?.provider !== id) throw new SearchError('settings-changed', 'Another provider supplies this capability')
       await this.ctx.settings.update(NS, { tools: { [capability]: { provider: id, enabled: data.enabled } } }, revision)
     } else if (method === 'default') {
+      if (id && providerOf(id).webSearch === false) throw new SearchError('invalid-request', 'This provider only supplies additional tools')
       const snapshot = await this.snapshot(), entry = this.webEntry()
       if (typeof data.searchRevision !== 'string' || snapshot.searchRevision !== data.searchRevision) throw new SearchError('settings-changed', 'The search provider changed')
       if (id && !snapshot.entries.find(row => row.id === id)?.enabled) throw new SearchError('provider-disabled', 'Enable the provider first')

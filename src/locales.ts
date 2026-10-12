@@ -13,6 +13,7 @@ export const en = {
   companies: 'Company search', companiesHint: 'Find company pages and public information.',
   images: 'Image search', imagesHint: 'Find images and their source pages.', videos: 'Video search', videosHint: 'Find videos and their descriptions.',
   extract: 'Page text', extractHint: 'Extract text from a public URL through this service.', map: 'Website links', mapHint: 'Find pages within a website.',
+  x: 'X search', xHint: 'Search X posts or read a post URL. Keyword search may be unavailable.',
 }
 export type CopyKey = keyof typeof en
 type Dictionary = Record<CopyKey, string>
@@ -31,6 +32,7 @@ export const ja: Dictionary = {
   companies: '企業検索', companiesHint: '企業のページや公開情報を探します。',
   images: '画像検索', imagesHint: '画像と掲載ページを探します。', videos: '動画検索', videosHint: '動画とその説明を探します。',
   extract: 'ページ本文取得', extractHint: 'このサービスで公開URLの本文を取り出します。', map: 'サイト内のページ一覧', mapHint: 'サイト内のページURLを探します。',
+  x: 'X検索', xHint: '投稿を検索するか、投稿URLから本文を取得します。キーワード検索は利用できない場合があります。',
 }
 export const zh: Dictionary = {
   nav: '网页搜索提供商', title: '网页搜索提供商', native: 'DSH 默认', default: '默认', setDefault: '用于网页搜索',
@@ -47,4 +49,5 @@ export const zh: Dictionary = {
   companies: '企业搜索', companiesHint: '查找企业网页和公开信息。',
   images: '图片搜索', imagesHint: '查找图片及其来源网页。', videos: '视频搜索', videosHint: '查找视频及其说明。',
   extract: '网页正文', extractHint: '通过此服务提取公开网址的正文。', map: '网站页面列表', mapHint: '查找网站内的页面网址。',
+  x: 'X 搜索', xHint: '搜索 X 帖子或读取帖子网址。关键词搜索可能不可用。',
 }

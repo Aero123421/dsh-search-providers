@@ -1,6 +1,6 @@
 {
   "name": "@aero123421/dsh-search-providers",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DeepSeek Harnessの検索プロバイダーと追加検索ツール",
   "type": "module",
   "license": "MIT",

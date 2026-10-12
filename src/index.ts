@@ -5,7 +5,7 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 import { WebError } from '@deepseek-ai/dsh-web'
 import { SearchAdapter } from './adapters.ts'
 import { SearchBroker } from './broker.ts'
-import { NS, PROVIDERS, SearchError, object, providerRoute, validateSettings, type Settings, type ProviderId } from './catalog.ts'
+import { NS, PROVIDERS, SearchError, object, providerOf, providerRoute, validateSettings, type Settings, type ProviderId } from './catalog.ts'
 import { registerExtraTools } from './tools.ts'
 
 export const name = NS
@@ -35,6 +35,7 @@ export function apply(ctx: Context, config: LiveConfig): void {
   for (const provider of PROVIDERS) {
     const adapter = new SearchAdapter({ id: provider.id, enabled: () => settings().providers[provider.id]?.enabled === true, resolveKey: () => broker.key(provider.id) })
     adapters.set(provider.id, adapter)
+    if (providerOf(provider.id).webSearch === false) continue
     ctx.web.registerSearchProvider({ id: providerRoute(provider.id), available: () => adapter.available(),
       async search(request, signal) {
         try { return await adapter.search(request, signal) }

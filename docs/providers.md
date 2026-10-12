@@ -11,6 +11,7 @@
 | Exa | `/search`、`type=auto`、highlights | `category=news/publication/people/company`。本文は `/contents` | `EXA_API_KEY` |
 | Brave | `/res/v1/web/search` | `/news/search`、`/images/search`、`/videos/search` | `BRAVE_API_KEY` |
 | Perplexity | `/search`、`search_type=web` | 人物は `search_type=people` | `PERPLEXITY_API_KEY` |
+| FxTwitter | 通常検索には使わない | `/2/search`。投稿URLは `/2/status/{id}` | 不要 |
 
 公式仕様：[Keenable](https://docs.keenable.ai/api-reference/search)、[Nimble](https://docs.nimbleway.com/nimble-sdk/web-tools/search)、[TinyFish](https://docs.tinyfish.ai/search-api/reference)、[Parallel](https://docs.parallel.ai/api-reference/search/search)、[Exa](https://exa.ai/docs/reference/search)、[Brave](https://api-dashboard.search.brave.com/documentation/services/web)、[Perplexity](https://docs.perplexity.ai/api-reference/search-post)。
 
@@ -19,3 +20,11 @@ Nimbleのコード検索は公開Webのコード例や文書を探す機能で�
 ページ本文取得は、各社のAPIを使ってテキストを取り出します。API自身のHTTP 200を対象ページのHTTP 200として扱いません。Nimbleは対象statusを確認し、他社は本文の取得成否を応答内容から判定します。[Nimble Extract](https://docs.nimbleway.com/api-reference/extract/extract)、[TinyFish Fetch](https://docs.tinyfish.ai/fetch-api/reference)、[Parallel Extract](https://docs.parallel.ai/api-reference/extract/extract)、[Exa Contents](https://exa.ai/docs/reference/get-contents)、[Keenable Fetch](https://docs.keenable.ai/api-reference/fetch)。
 
 無料枠や料金は画面に固定表示しません。Braveで永続的な会話履歴に検索結果を保存する場合は、保存権を付与する契約か確認してください。[Braveの保存権の説明](https://brave.com/search/api/#faq)。
+
+## FxTwitter
+
+`x_search` は公開APIをキーなしで呼び出します。キーワード検索は `q`・`feed=latest/top`・`count` を使い、投稿URLの場合はIDを取り出して投稿取得APIを呼びます。任意の入力URLを直接fetchしません。[検索](https://docs.fxembed.com/api/twitter/operations/2search/) · [投稿取得](https://docs.fxembed.com/api/twitter/operations/2statusid/)
+
+HTTPステータスとJSONの `code` を確認します。検索の404は該当なしと取得不能を区別できないため、空の成功結果には変換しません。HTTP 200・`code=200` の空配列だけを正常な空結果として扱います。HTTP 200でも `code=404` ならエラーです。
+
+投稿本文と日時、取得できた投稿者・反応数を返します。本文は6,000文字までで、長い場合は `truncated=true` です。APIが次ページのcursorを返した場合も `truncated=true` とし、自動で次ページを取得しません。欠けた反応数は省略します。

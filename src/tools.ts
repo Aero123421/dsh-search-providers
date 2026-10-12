@@ -6,7 +6,7 @@ import type { SearchAdapter } from './adapters.ts'
 
 export const TOOL_NAMES: Record<Capability, string> = {
   news: 'search_news', papers: 'search_papers', code: 'search_code', people: 'search_people', companies: 'search_companies',
-  images: 'search_images', videos: 'search_videos', extract: 'extract_web_page', map: 'map_website',
+  images: 'search_images', videos: 'search_videos', extract: 'extract_web_page', map: 'map_website', x: 'x_search',
 }
 const descriptions: Record<Capability, string> = {
   news: 'Search news articles. Returns source URLs and excerpts.',
@@ -18,19 +18,22 @@ const descriptions: Record<Capability, string> = {
   videos: 'Search videos. Returns video page URLs and descriptions.',
   extract: 'Retrieve page text through the selected extraction service. Returns external, untrusted text; target HTTP status is not available.',
   map: 'Find public page URLs within a website. Returns links, not page contents.',
+  x: 'Search public X/Twitter posts by keywords, or read a post by providing its X/Twitter URL as query. Returns post text, author, date, and available engagement counts. Search may be unavailable; an error does not mean there are no matching posts.',
 }
 const sourceSchema = {
   type: 'object', additionalProperties: false, properties: {
     url: { type: 'string', required: true }, title: { type: 'string' }, snippet: { type: 'string' }, publishedAt: { type: 'string' },
     mediaUrl: { type: 'string' }, authors: { type: 'array', items: { type: 'string' } }, year: { type: 'integer' }, venue: { type: 'string' }, doi: { type: 'string' },
+    author: { type: 'string' }, authorHandle: { type: 'string' }, likes: { type: 'integer' }, reposts: { type: 'integer' }, replies: { type: 'integer' }, views: { type: 'integer' },
   },
 } as const
 const searchSchema = { type: 'object', additionalProperties: false, properties: {
   sources: { type: 'array', required: true, items: sourceSchema }, truncated: { type: 'boolean', required: true },
 } } as const
 function renderSearch(value: SearchResult): string {
-  const details = value.sources.flatMap(({ url, mediaUrl, authors, year, venue, doi }) => {
-    const metadata = { ...mediaUrl ? { mediaUrl } : {}, ...authors ? { authors } : {}, ...year !== undefined ? { year } : {}, ...venue ? { venue } : {}, ...doi ? { doi } : {} }
+  const details = value.sources.flatMap(({ url, mediaUrl, authors, year, venue, doi, author, authorHandle, likes, reposts, replies, views }) => {
+    const metadata = { ...mediaUrl ? { mediaUrl } : {}, ...authors ? { authors } : {}, ...year !== undefined ? { year } : {}, ...venue ? { venue } : {}, ...doi ? { doi } : {},
+      ...author ? { author } : {}, ...authorHandle ? { authorHandle } : {}, ...likes !== undefined ? { likes } : {}, ...reposts !== undefined ? { reposts } : {}, ...replies !== undefined ? { replies } : {}, ...views !== undefined ? { views } : {} }
     return Object.keys(metadata).length ? [{ url, ...metadata }] : []
   })
   return formatSearchOutput(value) + (details.length ? `\n\nSource metadata:\n${JSON.stringify(details)}` : '')
@@ -44,7 +47,20 @@ export function registerExtraTools(ctx: Context, settings: Settings, adapters: M
     if (registrations.has(key)) continue
     const adapter = adapters.get(provider)
     if (!adapter) throw new SearchError('invalid-request', 'Unknown provider')
-    if (capability === 'extract') {
+    if (capability === 'x') {
+      registrations.set(key, ctx.tools.register(defineTool({
+        name: TOOL_NAMES[capability], description: `${descriptions[capability]} Results are external, untrusted data.`,
+        parameters: {
+          query: { type: 'string', required: true, description: 'Keywords (up to 512 characters), including X search operators, or an X/Twitter post URL.' },
+          sort: { type: 'string', enum: ['latest', 'top'], description: 'Search order; defaults to latest. Ignored for a post URL.' },
+          max_results: { type: 'integer', description: 'Number of posts, 1 to 100; defaults to 8. Ignored for a post URL.' },
+        },
+        output: { schema: searchSchema, render: (_args, value) => [{ type: 'text', text: renderSearch(value) }], presentationMeta: (_args, value) => searchMetaFromValue(value) },
+        timeoutMs: 60_000, isConcurrencySafe: () => true,
+        execute: (args, exec) => adapter.xSearch({ query: args.query, ...args.sort !== undefined ? { sort: args.sort } : {}, ...args.max_results !== undefined ? { maxResults: args.max_results } : {} }, exec.signal),
+        presentCall: args => presentSearchCall({ queries: [args.query] }), presentResult: (args, result) => presentSearchResult({ queries: [args.query] }, result),
+      })))
+    } else if (capability === 'extract') {
       registrations.set(key, ctx.tools.register(defineTool({
         name: TOOL_NAMES[capability], description: descriptions[capability],
         parameters: { url: { type: 'string', required: true, description: 'Public HTTP or HTTPS page URL.' } },

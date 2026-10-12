@@ -1,5 +1,5 @@
 import { PROVIDERS, SearchError, object, providerOf, capabilityOf, type Settings, type ProviderId, type Capability } from './catalog.ts'
-export interface ProviderView { id: ProviderId; label: string; capabilities: readonly Capability[]; enabled: boolean; configured: boolean; writable: boolean; keyOptional: boolean; source?: string }
+export interface ProviderView { id: ProviderId; label: string; capabilities: readonly Capability[]; enabled: boolean; configured: boolean; writable: boolean; keyOptional: boolean; supportsKeys: boolean; webSearch: boolean; source?: string }
 export interface Snapshot { entries: ProviderView[]; revision: number; searchProvider: string; searchRevision: string; nativeSearchProvider: string; tools: Settings['tools'] }
 function string(value: unknown): string {
   if (typeof value !== 'string' || value.length > 300) throw new SearchError('invalid-response', 'Invalid settings value')
@@ -18,7 +18,8 @@ export function parseSnapshot(value: unknown): Snapshot {
     if (ids.has(provider.id)) throw new SearchError('invalid-response', 'Duplicate search provider')
     ids.add(provider.id)
     return { ...provider, enabled: boolean(entry.enabled), configured: boolean(entry.configured), writable: boolean(entry.writable),
-      keyOptional: !!provider.keyOptional, ...entry.source === undefined ? {} : { source: string(entry.source) } }
+      keyOptional: !!provider.keyOptional, supportsKeys: !!provider.env, webSearch: provider.webSearch !== false,
+      ...entry.source === undefined ? {} : { source: string(entry.source) } }
   })
   const tools: Settings['tools'] = {}
   for (const [id, raw] of Object.entries(object(row.tools))) {
