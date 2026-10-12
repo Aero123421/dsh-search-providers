@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdtemp, rm, mkdir, readFile } from 'node:fs/promises'
+import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { chromium } from 'playwright'
@@ -17,6 +17,10 @@ async function command(args) {
 }
 try {
   await command(['plugin', '--profile', 'web', 'add', '-w', root])
+  // Use the ordinary user patch in this private DSH_HOME to mark the pinned
+  // welcome copy as acknowledged and skip unrelated credential onboarding.
+  // Interactive dismissal races ConfigEditor-triggered reconnects.
+  await writeFile(join(temp, 'home', 'cordis.patch.yml'), "- id: ui-settings-general\n  config:\n    welcomeNoticeVersion: '2026-09-28.1'\n- id: ui-settings-models\n  config:\n    credentialOnboarding: false\n")
   server = spawn('dsh', ['--profile', 'web', '--no-open', '--port', '0'], { cwd: temp, env, stdio: ['ignore', 'pipe', 'pipe'] })
   server.stdout.on('data', chunk => { output += chunk }); server.stderr.on('data', chunk => { output += chunk })
   let launch
@@ -57,35 +61,26 @@ try {
   assert.equal(snapshot.entries.find(row => row.id === 'exa').configured, true)
   await api('default', { provider: 'native', revision: snapshot.revision, searchRevision: snapshot.searchRevision }); snapshot = await api('list')
   assert.equal(snapshot.searchProvider, 'deepseek-official')
-  // Dismiss only the upstream onboarding dialogs in this isolated test profile.
-  for (let attempt = 0; attempt < 6; attempt++) {
-    for (const name of ['Continue', 'Configure later', '继续', '稍后配置']) {
-      const button = page.getByRole('button', { name, exact: true })
-      if (await button.isVisible().catch(() => false)) await button.click()
-    }
-    await new Promise(resolve => setTimeout(resolve, 200))
-  }
   const settings = page.getByRole('button', { name: /^(Settings|设置)$/ })
-  if (await settings.isVisible().catch(() => false)) {
-    await settings.click()
-    await page.getByRole('button', { name: 'Web search provider', exact: true }).click()
-    await page.getByRole('heading', { name: 'Web search provider', exact: true }).waitFor()
-    await page.locator('.dsh-search-provider').first().waitFor()
-    assert.equal(await page.locator('.dsh-search-provider').count(), 9)
-    await mkdir('artifacts', { recursive: true }); await page.waitForFunction(() => !document.body.innerText.includes('Unable to create default workspace'), null, { timeout: 8000 }).catch(() => {})
-    await page.screenshot({ path: 'artifacts/native-settings-en.png' })
-    const fx = page.locator('.dsh-search-provider').filter({ has: page.getByText('FxTwitter', { exact: true }) })
-    assert.equal(await fx.getByRole('button', { name: 'Save API key', exact: true }).count(), 0)
-    assert.equal(await fx.getByRole('button', { name: 'Use for web search', exact: true }).count(), 0)
-    await fx.getByRole('button', { name: 'Choose features', exact: true }).click()
-    await page.getByRole('switch', { name: 'Use feature: X search', exact: true }).waitFor()
-    assert.equal(await page.getByRole('switch', { name: 'Use feature: X search', exact: true }).getAttribute('aria-checked'), 'true')
-    await page.screenshot({ path: 'artifacts/native-x-search-en.png', animations: 'disabled' })
-  } else throw new Error('The native Settings launcher was not found')
+  await settings.waitFor()
+  await settings.click()
+  await page.getByRole('button', { name: 'Web search provider', exact: true }).click()
+  await page.getByRole('heading', { name: 'Web search provider', exact: true }).waitFor()
+  await page.locator('.dsh-search-provider').first().waitFor()
+  assert.equal(await page.locator('.dsh-search-provider').count(), 9)
+  await mkdir('artifacts', { recursive: true }); await page.waitForFunction(() => !document.body.innerText.includes('Unable to create default workspace'), null, { timeout: 8000 }).catch(() => {})
+  await page.screenshot({ path: 'artifacts/native-settings-en.png' })
+  const fx = page.locator('.dsh-search-provider').filter({ has: page.getByText('FxTwitter', { exact: true }) })
+  assert.equal(await fx.getByRole('button', { name: 'Save API key', exact: true }).count(), 0)
+  assert.equal(await fx.getByRole('button', { name: 'Use for web search', exact: true }).count(), 0)
+  await fx.getByRole('button', { name: 'Choose features', exact: true }).click()
+  await page.getByRole('switch', { name: 'Use feature: X search', exact: true }).waitFor()
+  assert.equal(await page.getByRole('switch', { name: 'Use feature: X search', exact: true }).getAttribute('aria-checked'), 'true')
+  await page.screenshot({ path: 'artifacts/native-x-search-en.png', animations: 'disabled' })
   assert.deepEqual(errors, [])
   console.log('Isolated dsh Web profile: native installation, authenticated UI/API, Loader default-provider reconciliation, feature settings, preserved credentials, and standard-provider restoration passed')
 } finally {
   await browser?.close()
-  if (server && server.exitCode === null) { server.kill('SIGTERM'); await new Promise(resolve => { const timer = setTimeout(() => { server.kill('SIGKILL'); resolve() }, 3000); server.once('exit', () => { clearTimeout(timer); resolve() }) }) }
+  if (server && server.exitCode === null) { server.kill('SIGTERM'); await new Promise(resolve => { const timer = setTimeout(() => { server.kill('SIGKILL') }, 3000); server.once('exit', () => { clearTimeout(timer); resolve() }) }) }
   await rm(temp, { recursive: true, force: true })
 }
