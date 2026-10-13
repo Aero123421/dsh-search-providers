@@ -2804,7 +2804,7 @@ var Updates = class {
   install(candidateId, operationId) {
     if (this.pending) return this.pending;
     this.pending = (async () => {
-      let started = false;
+      let started = false, admitted = false;
       try {
         await this.status();
         if (this.operation?.id === operationId) return this.status();
@@ -2813,6 +2813,7 @@ var Updates = class {
         const before = await this.bundle(), candidate = await getCandidate(this.runtime, this.fetcher);
         if (!this.candidate || candidate.id !== candidateId || candidate.id !== this.candidate.id || !import_semver.default.gt(candidate.version, before.version ?? this.running)) throw new Error("candidate-changed");
         this.operation = { id: operationId, version: candidate.version };
+        admitted = true;
         await this.save();
         this.view = { ...this.view, status: "installing", operation: operationId };
         let spec = `github:${REPOSITORY}#${candidate.tag}`;
@@ -2835,12 +2836,12 @@ var Updates = class {
         const after = await this.bundle();
         return this.result(result, after.version);
       } catch (error) {
-        if (this.operation && !this.operation.result && !started) {
+        if (admitted && this.operation?.id === operationId && !this.operation.result && !started) {
           this.operation.result = { changed: false, application: "failed", target: PACKAGE, stage: "install", error: { code: "operation-error" } };
           await this.save().catch(() => {
           });
         }
-        return this.fail(error, started && !this.operation?.result ? "unknown" : "failed");
+        return this.fail(error, this.operation && !this.operation.result ? "unknown" : "failed");
       }
     })().finally(() => {
       this.pending = void 0;

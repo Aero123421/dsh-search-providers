@@ -163,7 +163,7 @@ export class Updates {
   install(candidateId: unknown, operationId: unknown): Promise<UpdateView> {
     if (this.pending) return this.pending
     this.pending = (async () => {
-      let started = false
+      let started = false, admitted = false
       try {
         // Read the journal before admitting a new operation, including after a restart.
         await this.status()
@@ -172,7 +172,7 @@ export class Updates {
         if (typeof operationId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(operationId)) throw new Error('invalid-request')
         const before = await this.bundle(), candidate = await getCandidate(this.runtime, this.fetcher)
         if (!this.candidate || candidate.id !== candidateId || candidate.id !== this.candidate.id || !semver.gt(candidate.version, before.version ?? this.running)) throw new Error('candidate-changed')
-        this.operation = { id: operationId, version: candidate.version }; await this.save()
+        this.operation = { id: operationId, version: candidate.version }; admitted = true; await this.save()
         this.view = { ...this.view, status: 'installing', operation: operationId }
         let spec = `github:${REPOSITORY}#${candidate.tag}`
         if (before.source?.startsWith('file:') || before.source?.includes('/releases/download/')) {
@@ -192,11 +192,11 @@ export class Updates {
         this.operation.result = result; await this.save()
         const after = await this.bundle(); return this.result(result, after.version)
       } catch (error) {
-        if (this.operation && !this.operation.result && !started) {
+        if (admitted && this.operation?.id === operationId && !this.operation.result && !started) {
           this.operation.result = { changed: false, application: 'failed', target: PACKAGE, stage: 'install', error: { code: 'operation-error' } }
           await this.save().catch(() => {})
         }
-        return this.fail(error, started && !this.operation?.result ? 'unknown' : 'failed')
+        return this.fail(error, this.operation && !this.operation.result ? 'unknown' : 'failed')
       }
     })().finally(() => { this.pending = undefined })
     return this.pending

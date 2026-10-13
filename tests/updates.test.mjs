@@ -123,3 +123,17 @@ test('Disabling the plugin during preparation prevents later installer invocatio
   await started; updates.dispose(); releaseDownload(); await installing
   assert.equal(calls.length, 0)
 })
+test('Another Client cannot settle an unresolved operation or start a second installation', async t => {
+  let installs = 0
+  const { updates, dir, manager } = await fixture(t, { manager: { installBundle: async () => { installs++; throw new Error('lost manager result') } } })
+  const checked = await updates.check(), firstId = randomUUID()
+  assert.equal((await updates.install(checked.candidate.id, firstId)).status, 'unknown')
+  const second = new Updates(() => manager, dir, '0.3.0', runtime, fetcher())
+  assert.equal((await second.install(checked.candidate.id, randomUUID())).status, 'unknown')
+  const third = new Updates(() => manager, dir, '0.3.0', runtime, fetcher())
+  assert.equal((await third.status()).status, 'unknown')
+  assert.equal((await third.check()).status, 'unknown')
+  assert.equal((await third.install(checked.candidate.id, randomUUID())).status, 'unknown')
+  assert.equal(installs, 1)
+  assert.equal((await updates.status()).operation, firstId)
+})
