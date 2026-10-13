@@ -125,6 +125,10 @@ export class Updates {
     const bundle = (await this.manager.listBundles()).find(row => row.name === PACKAGE)
     if (!bundle?.installed || bundle.readOnlyReason || bundle.error) throw new Error(bundle?.readOnlyReason ?? 'not-installed')
     if (!supportsSource(bundle.source, this.dir && join(this.dir, '.dsh-search-update'), bundle.version)) throw new Error('source-unsupported')
+    if (bundle.source?.startsWith('file:')) {
+      const file = await lstat(bundle.source.slice(5)).catch(() => undefined)
+      if (!file?.isFile() || file.isSymbolicLink()) throw new Error('source-unsupported')
+    }
     return bundle
   }
   private fail(error: unknown, status: UpdateStatus = 'failed'): UpdateView {

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile, mkdir, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
@@ -27,6 +27,10 @@ function fetcher(releaseValue = release(), manifestValue = manifest()) {
 async function fixture(t, options = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'search-updates-test-')); t.after(() => rm(dir, { recursive: true, force: true }))
   const bundle = { name: PACKAGE, enabled: false, installed: true, version: '0.3.0', source: `github:${REPOSITORY}#v0.3.0`, ...options.bundle }
+  if (bundle.source.startsWith('file:/downloads/')) {
+    const path = join(dir, bundle.source.slice('file:/downloads/'.length))
+    await writeFile(path, bytes); bundle.source = `file:${path}`
+  }
   const calls = []
   const manager = { listBundles: async () => [bundle], waitForInstall: async () => null, installBundle: async (spec, config) => { calls.push({ spec, config }); bundle.version = version; if (!spec.startsWith('github:')) bundle.source = `file:${spec}`; return { changed: true, application: 'restart-required', stage: 'install', target: spec, version, bundle: PACKAGE, ...options.result } }, ...options.manager }
   const updates = new Updates(() => manager, dir, '0.3.0', runtime, options.fetcher ?? fetcher())
@@ -197,4 +201,13 @@ test('Authenticated Host route returns busy for an unadmitted Client installatio
   const first = host.rpc('update-install', { candidateId: checked.candidate.id, operationId: randomUUID() }); await entered
   await assert.rejects(host.rpc('update-install', { candidateId: checked.candidate.id, operationId: randomUUID() }), /dsh-search-providers\/busy$/)
   releaseInstall({ changed: false, application: 'failed', target: PACKAGE, stage: 'install', version: bundle.version }); await first
+})
+test('A released-name local directory or symbolic link is not a tarball installation', async t => {
+  const { dir, updates, bundle } = await fixture(t)
+  const directory = join(dir, 'directory', 'aero123421-dsh-search-providers-0.3.0.tgz')
+  await mkdir(directory, { recursive: true }); bundle.source = `file:${directory}`
+  assert.equal((await updates.status()).reason, 'source-unsupported')
+  const target = join(dir, 'archive.tgz'), link = join(dir, 'aero123421-dsh-search-providers-0.3.0.tgz')
+  await writeFile(target, bytes); await symlink(target, link); bundle.source = `file:${link}`
+  assert.equal((await updates.status()).reason, 'source-unsupported')
 })
