@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useState, useSyncExternalStore } from 'react'
 import type { ComponentType } from 'react'
 import { Button, Input, Modal, Switch, StateDot, IconSearchOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { UpdateController } from './update-controller.ts'
 import { SearchController, type Connection } from './controller.ts'
 import { providerRoute, type ProviderId } from './catalog.ts'
 import type { ProviderView, Snapshot } from './broker.ts'
@@ -18,7 +19,7 @@ interface ClientContext {
   on(event: string, callback: () => void): void
   remote?: { $on(event: string, callback: () => void): () => void }
 }
-interface PageProps { controller: SearchController; locale: Locale }
+interface PageProps { controller: SearchController; locale: Locale; updates: UpdateController }
 export const inject = ['slots', 'locale', 'connection', 'remote']
 function useCopy(locale: Locale): Translate {
   useSyncExternalStore(listener => locale.subscribe(listener), () => locale.getSnapshot().revision)
@@ -82,7 +83,24 @@ function FeaturesDialog({ entry, snapshot, controller, t, onClose }: { entry: Pr
     </div>
   </Modal>
 }
-export function SearchSettings({ controller, locale }: PageProps) {
+function UpdateRow({ controller, t }: { controller: UpdateController; t: Translate }) {
+  const view = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
+  useEffect(() => { void controller.status() }, [controller])
+  const busy = view.status === 'checking' || view.status === 'installing'
+  return <div className="dsh-search-update">
+    <p>{t('updateRunning')}: {view.running}{view.installed && view.installed !== view.running ? ` · ${t('updateInstalled')}: ${view.installed}` : ''}</p>
+    <p role="status">{t(`update_${view.status}`)}{view.reason && <span> · {t('updateReason')}: {t((`updateReason_${view.reason}` in en ? `updateReason_${view.reason}` : 'updateReason_other') as CopyKey)}</span>}{view.stage && <span> · {t('updateStage')}: {view.stage}</span>}</p>
+    {view.checkedAt && <p className="dsh-search-muted">{t('updateChecked')}: {new Date(view.checkedAt).toLocaleString()}</p>}
+    {view.candidate && view.status === 'available' && <><p>{view.running} → {view.candidate.version} · DSH {view.candidate.runtime}</p><p className="dsh-search-update-notes">{view.candidate.notes}</p><p className="dsh-search-muted">{t('updatePin')}</p></>}
+    <div className="dsh-search-actions">
+      <Button variant="outline" size="sm" disabled={busy || view.status === 'unavailable' || view.status === 'unknown' || view.status === 'restart-required'} onClick={() => { void controller.check() }}>{t('updateCheck')}</Button>
+      {view.status === 'available' && <Button variant="primary" size="sm" onClick={() => { void controller.install() }}>{t('updateInstall')}</Button>}
+      {view.status === 'unknown' && <Button variant="outline" size="sm" onClick={() => { void controller.status() }}>{t('updateReconcile')}</Button>}
+      <a href="https://github.com/Aero123421/dsh-search-providers/releases" target="_blank" rel="noreferrer">{t('updateReleases')}</a>
+    </div>
+  </div>
+}
+export function SearchSettings({ controller, locale, updates }: PageProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), t = useCopy(locale)
   const [dialog, setDialog] = useState<{ kind: 'key' | 'features'; provider: ProviderId }>(), [busy, setBusy] = useState(false), [error, setError] = useState<CopyKey>()
   useEffect(() => { void controller.load() }, [controller])
@@ -96,6 +114,7 @@ export function SearchSettings({ controller, locale }: PageProps) {
   const defaultDisabled = snapshot?.entries.some(row => snapshot.searchProvider === providerRoute(row.id) && !row.enabled)
   return <section className="dsh-search-settings">
     <h2>{t('title')}</h2>
+    <UpdateRow controller={updates} t={t} />
     {state.error && <p role="alert" className="dsh-search-error">{t('loadFailed')} <Button size="sm" onClick={() => { void controller.refresh() }}>{t('retry')}</Button></p>}
     {error && <p role="alert" className="dsh-search-error">{t(error)}</p>}
     {state.status === 'loading' && !snapshot && <div className="dsh-search-loading"><StateDot state="ongoing" size={20} /></div>}
@@ -121,20 +140,20 @@ export function SearchSettings({ controller, locale }: PageProps) {
   </section>
 }
 export function apply(ctx: ClientContext): void {
-  const controller = new SearchController(ctx.connection)
-  ctx.effect(() => () => controller.dispose())
+  const controller = new SearchController(ctx.connection), updates = new UpdateController(ctx.connection)
+  ctx.effect(() => () => { controller.dispose(); updates.dispose() })
   ctx.effect(() => ctx.locale.register(COPY_NS, { en, ja, zh }))
   ctx.effect(() => {
     const style = document.createElement('style'); style.dataset.dshSearchProviders = ''; style.textContent = controlsCss + css; document.head.append(style)
     return () => style.remove()
   })
-  ctx.on('connection/reset', () => controller.refreshIfLoaded())
+  ctx.on('connection/reset', () => { controller.refreshIfLoaded(); updates.reset() })
   ctx.effect(() => {
     const disposers = ['settings/document-updated', 'credentials/record-updated', 'credentials/reference-updated']
       .map(event => ctx.remote?.$on(event, () => controller.refreshIfLoaded()))
     return () => { for (const dispose of disposers) dispose?.() }
   })
   ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: 'web-search-provider', order: 15,
-    label: () => ctx.locale.bind(COPY_NS)('nav'), icon: IconSearchOutlineRegular, inject: () => ({ controller, locale: ctx.locale }),
+    label: () => ctx.locale.bind(COPY_NS)('nav'), icon: IconSearchOutlineRegular, inject: () => ({ controller, locale: ctx.locale, updates }),
   }, SearchSettings))
 }

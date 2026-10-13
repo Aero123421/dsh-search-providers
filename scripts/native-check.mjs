@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { chromium } from 'playwright'
 import assert from 'node:assert/strict'
+import { VERSION } from '../src/version.ts'
 const requestedSource = process.argv[2] ?? '.'
 const root = requestedSource.startsWith('github:') ? requestedSource : resolve(requestedSource)
 const temp = await mkdtemp(join(tmpdir(), 'dsh-search-native-')), env = { ...process.env, DSH_HOME: join(temp, 'home') }
@@ -43,6 +44,8 @@ try {
     if (!result.ok) throw new Error(result.error.code)
     return result.value
   }, { method, payload })
+  const updateStatus = await api('update-status'); assert.equal(updateStatus.running, VERSION)
+  assert.ok(['idle', 'unavailable'].includes(updateStatus.status))
   let snapshot = await api('list'); assert.equal(snapshot.entries.length, 8); assert.equal(snapshot.searchProvider, 'deepseek-official')
   const fxEntry = snapshot.entries.find(row => row.id === 'fxtwitter'); assert.equal(fxEntry.supportsKeys, false); assert.equal(fxEntry.webSearch, false)
   await api('provider', { provider: 'fxtwitter', enabled: true, revision: snapshot.revision }); snapshot = await api('list')
@@ -77,6 +80,35 @@ try {
   await page.getByRole('switch', { name: 'Use feature: X search', exact: true }).waitFor()
   assert.equal(await page.getByRole('switch', { name: 'Use feature: X search', exact: true }).getAttribute('aria-checked'), 'true')
   await page.screenshot({ path: 'artifacts/native-x-search-en.png', animations: 'disabled' })
+  await page.locator('.dsh-search-dialog').getByRole('button', { name: 'Close', exact: true }).click()
+  const row = page.locator('.dsh-search-update'); await row.waitFor()
+  assert.equal(await row.count(), 1)
+  assert.match(await row.innerText(), new RegExp(VERSION.replaceAll('.', '\\.')))
+  // Simulate authenticated wire results to exercise rendering and install deduplication
+  // without asking the real profile manager to install a fictional release.
+  let starts = 0, wireState = 'available'
+  const candidate = { id: 'ui-fixture', version: '0.4.0', tag: 'v0.4.0', notes: 'Update fixture', url: 'https://github.com/Aero123421/dsh-search-providers/releases/tag/v0.4.0', runtime: '0.2.1-alpha.2' }
+  await page.route('**/api/dsh-search-providers/update-*', async route => {
+    const request = route.request().postDataJSON()
+    if (request.method.endsWith('update-install')) { starts++; wireState = 'restart-required' }
+    const value = { status: request.method.endsWith('update-check') ? 'available' : wireState, running: VERSION, installed: wireState === 'restart-required' ? '0.4.0' : VERSION, candidate }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ type: 'server-response', rpcId: request.rpcId, result: { ok: true, value } }) })
+  })
+  // Reload creates a new Client and must reconcile using update-status.
+  await page.reload()
+  await page.getByRole('button', { name: /^(Settings|设置)$/ }).click()
+  await page.getByRole('button', { name: 'Web search provider', exact: true }).click()
+  await row.getByRole('button', { name: 'Update', exact: true }).click()
+  await row.getByText('Restart DSH to use the installed version.', { exact: true }).waitFor()
+  assert.equal(starts, 1)
+  await page.reload()
+  await page.getByRole('button', { name: /^(Settings|设置)$/ }).click()
+  await page.getByRole('button', { name: 'Web search provider', exact: true }).click()
+  await row.getByText('Restart DSH to use the installed version.', { exact: true }).waitFor()
+  assert.equal(starts, 1)
+  await page.setViewportSize({ width: 390, height: 844 })
+  assert.equal(await row.evaluate(element => element.scrollWidth <= element.clientWidth), true)
+  await page.screenshot({ path: 'artifacts/native-update-narrow.png', animations: 'disabled' })
   assert.deepEqual(errors, [])
   console.log('Isolated dsh Web profile: native installation, authenticated UI/API, Loader default-provider reconciliation, feature settings, preserved credentials, and standard-provider restoration passed')
 } finally {

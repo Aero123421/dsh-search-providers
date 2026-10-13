@@ -6,6 +6,10 @@ import { WebError } from '@deepseek-ai/dsh-web'
 import { SearchAdapter } from './adapters.ts'
 import { SearchBroker } from './broker.ts'
 import { NS, PROVIDERS, SearchError, object, providerOf, providerRoute, validateSettings, type Settings, type ProviderId } from './catalog.ts'
+import { getDshRuntimeVersion } from '@deepseek-ai/dsh-app-boot'
+import type {} from '@deepseek-ai/dsh-plugin-manager'
+import { Updates } from './updates.ts'
+import { VERSION } from './version.ts'
 import { registerExtraTools } from './tools.ts'
 
 export const name = NS
@@ -30,6 +34,8 @@ export function apply(ctx: Context, config: LiveConfig): void {
     return resolved
   })
   ctx.effect(() => ctx.settings.configure({ auto: false }, ctx.fiber))
+  const updates = new Updates(() => ctx.get('pluginManager'), ctx.get('profileContext')?.dir, VERSION, getDshRuntimeVersion())
+  ctx.effect(() => () => updates.dispose())
   const broker = new SearchBroker(ctx), adapters = new Map<ProviderId, SearchAdapter>()
   ctx.effect(() => () => { for (const adapter of adapters.values()) adapter.dispose() })
   for (const provider of PROVIDERS) {
@@ -56,7 +62,7 @@ export function apply(ctx: Context, config: LiveConfig): void {
   ctx.on('settings/document-updated', namespace => { if (namespace === NS) refreshTools() })
   ctx.on('loader/volatile-update', refreshTools)
   ctx.effect(() => () => { for (const dispose of registrations.values()) dispose(); registrations.clear() })
-  for (const method of ['list', 'save-key', 'delete-key', 'provider', 'tool', 'default']) {
+  for (const method of ['list', 'save-key', 'delete-key', 'provider', 'tool', 'default', 'update-status', 'update-check', 'update-install']) {
     const endpoint = `${NS}/${method}`
     ctx.connection.fetch.register({ path: `/api/${endpoint}`, methods: ['POST'], requestBody: 'buffered',
       async fetch(request) {
@@ -66,7 +72,8 @@ export function apply(ctx: Context, config: LiveConfig): void {
           const envelope = object(await request.json())
           if (envelope.type !== 'client-request' || typeof envelope.rpcId !== 'string' || envelope.rpcId.length > 100 || envelope.method !== endpoint) return new Response('invalid request', { status: 400 })
           rpcId = envelope.rpcId; request.signal.throwIfAborted()
-          const value = await broker.dispatch(method, envelope.payload)
+          const payload = object(envelope.payload)
+          const value = method === 'update-status' ? await updates.status(payload.operationId) : method === 'update-check' ? await updates.check() : method === 'update-install' ? await updates.install(payload.candidateId, payload.operationId) : await broker.dispatch(method, envelope.payload)
           return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } }, { headers: { 'cache-control': 'no-store' } })
         } catch (error) {
           if (rpcId === undefined) return new Response('invalid request', { status: 400 })
