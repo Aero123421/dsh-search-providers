@@ -86,7 +86,7 @@ function FeaturesDialog({ entry, snapshot, controller, t, onClose }: { entry: Pr
 function UpdateRow({ controller, t }: { controller: UpdateController; t: Translate }) {
   const view = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
   useEffect(() => { void controller.status() }, [controller])
-  const busy = view.status === 'checking' || view.status === 'installing'
+  const busy = !view.profileKey || view.status === 'checking' || view.status === 'installing'
   return <div className="dsh-search-update">
     <p>{t('updateRunning')}: {view.running}{view.installed && view.installed !== view.running ? ` · ${t('updateInstalled')}: ${view.installed}` : ''}</p>
     <p role="status">{t(`update_${view.status}`)}{view.reason && <span> · {t('updateReason')}: {t((`updateReason_${view.reason}` in en ? `updateReason_${view.reason}` : 'updateReason_other') as CopyKey)}</span>}{view.stage && <span> · {t('updateStage')}: {view.stage}</span>}</p>

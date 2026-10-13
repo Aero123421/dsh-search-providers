@@ -91,7 +91,7 @@ try {
   await page.route('**/api/dsh-search-providers/update-*', async route => {
     const request = route.request().postDataJSON()
     if (request.method.endsWith('update-install')) { starts++; wireState = 'restart-required' }
-    const value = { status: request.method.endsWith('update-check') ? 'available' : wireState, running: VERSION, installed: wireState === 'restart-required' ? '0.4.0' : VERSION, candidate }
+    const value = { profileKey: updateStatus.profileKey, status: request.method.endsWith('update-check') ? 'available' : wireState, running: VERSION, installed: wireState === 'restart-required' ? '0.4.0' : VERSION, candidate }
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ type: 'server-response', rpcId: request.rpcId, result: { ok: true, value } }) })
   })
   // Reload creates a new Client and must reconcile using update-status.
