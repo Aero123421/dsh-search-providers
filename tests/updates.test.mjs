@@ -174,3 +174,27 @@ test('A busy refusal clears the unadmitted Client ID before reconciling the Host
   } } })
   await controller.status(); await controller.install(); assert.equal(controller.getSnapshot().status, 'failed'); await controller.status(); controller.dispose()
 })
+test('Dispose during the final asynchronous bundle lookup cannot invoke the installer', async t => {
+  let calls = 0, releaseLookup, finalLookup
+  const ready = new Promise(resolve => { finalLookup = resolve })
+  const bundle = { name: PACKAGE, installed: true, enabled: false, version: '0.3.0', source: `github:${REPOSITORY}#v0.3.0` }
+  const { updates } = await fixture(t, { manager: { listBundles: async () => {
+    calls++; if (calls === 4) { finalLookup(); await new Promise(resolve => { releaseLookup = resolve }) } return [bundle]
+  }, installBundle: async () => { throw new Error('Installer must not be invoked') } } })
+  const checked = await updates.check(), installing = updates.install(checked.candidate.id, randomUUID())
+  await ready; updates.dispose(); releaseLookup()
+  assert.equal((await installing).status, 'failed')
+})
+test('Authenticated Host route returns busy for an unadmitted Client installation', async t => {
+  const { hostFixture } = await import('../scripts/host-fixture.mjs')
+  const { manager, dir, bundle } = await fixture(t)
+  const savedFetch = globalThis.fetch; globalThis.fetch = fetcher(); t.after(() => { globalThis.fetch = savedFetch })
+  let releaseInstall, announceInstall
+  const entered = new Promise(resolve => { announceInstall = resolve })
+  manager.installBundle = async () => { announceInstall(); return new Promise(resolve => { releaseInstall = resolve }) }
+  const host = await hostFixture({ manager, profileDir: dir }); t.after(() => host.dispose())
+  const checked = await host.rpc('update-check')
+  const first = host.rpc('update-install', { candidateId: checked.candidate.id, operationId: randomUUID() }); await entered
+  await assert.rejects(host.rpc('update-install', { candidateId: checked.candidate.id, operationId: randomUUID() }), /dsh-search-providers\/busy$/)
+  releaseInstall({ changed: false, application: 'failed', target: PACKAGE, stage: 'install', version: bundle.version }); await first
+})

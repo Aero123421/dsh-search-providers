@@ -2826,7 +2826,7 @@ var Updates = class {
     return this.pending;
   }
   install(candidateId, operationId) {
-    if (this.pending) return this.pendingOperation === operationId ? this.pending : Promise.reject(new Error("busy"));
+    if (this.pending) return this.pendingOperation !== void 0 && this.pendingOperation === operationId ? this.pending : Promise.reject(new Error("busy"));
     this.pendingOperation = typeof operationId === "string" ? operationId : void 0;
     this.pending = (async () => {
       let started = false, admitted = false;
@@ -2858,6 +2858,7 @@ var Updates = class {
         }
         const latest = await this.bundle();
         if (latest.source !== before.source || latest.enabled !== before.enabled) throw new Error("settings-changed");
+        if (this.closed) throw new Error("cancelled");
         started = true;
         const result = await this.manager.installBundle(spec, { enabled: before.enabled, requestId: brandString(operationId) });
         this.operation.result = result;

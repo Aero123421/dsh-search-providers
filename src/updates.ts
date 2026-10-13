@@ -185,7 +185,7 @@ export class Updates {
     return this.pending
   }
   install(candidateId: unknown, operationId: unknown): Promise<UpdateView> {
-    if (this.pending) return this.pendingOperation === operationId ? this.pending : Promise.reject(new Error('busy'))
+    if (this.pending) return this.pendingOperation !== undefined && this.pendingOperation === operationId ? this.pending : Promise.reject(new Error('busy'))
     this.pendingOperation = typeof operationId === 'string' ? operationId : undefined
     this.pending = (async () => {
       let started = false, admitted = false
@@ -216,6 +216,7 @@ export class Updates {
         }
         const latest = await this.bundle()
         if (latest.source !== before.source || latest.enabled !== before.enabled) throw new Error('settings-changed')
+        if (this.closed) throw new Error('cancelled')
         started = true
         const result = await this.manager!.installBundle(spec, { enabled: before.enabled, requestId: brandString<PluginInstallRequestId>(operationId) })
         this.operation.result = result; await this.save()
