@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/internal/constants.js
+// node_modules/semver/internal/constants.js
 var require_constants = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/internal/constants.js"(exports, module) {
+  "node_modules/semver/internal/constants.js"(exports, module) {
     "use strict";
     var SEMVER_SPEC_VERSION = "2.0.0";
     var MAX_LENGTH = 256;
@@ -60,9 +60,9 @@ var require_constants = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/internal/debug.js
+// node_modules/semver/internal/debug.js
 var require_debug = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/internal/debug.js"(exports, module) {
+  "node_modules/semver/internal/debug.js"(exports, module) {
     "use strict";
     var debug = typeof process === "object" && process.env && process.env.NODE_DEBUG && /\bsemver\b/i.test(process.env.NODE_DEBUG) ? (...args) => console.error("SEMVER", ...args) : () => {
     };
@@ -70,9 +70,9 @@ var require_debug = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/internal/re.js
+// node_modules/semver/internal/re.js
 var require_re = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/internal/re.js"(exports, module) {
+  "node_modules/semver/internal/re.js"(exports, module) {
     "use strict";
     var {
       MAX_SAFE_COMPONENT_LENGTH,
@@ -158,9 +158,9 @@ var require_re = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/internal/parse-options.js
+// node_modules/semver/internal/parse-options.js
 var require_parse_options = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/internal/parse-options.js"(exports, module) {
+  "node_modules/semver/internal/parse-options.js"(exports, module) {
     "use strict";
     var looseOption = Object.freeze({ loose: true });
     var emptyOpts = Object.freeze({});
@@ -177,9 +177,9 @@ var require_parse_options = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/internal/identifiers.js
+// node_modules/semver/internal/identifiers.js
 var require_identifiers = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/internal/identifiers.js"(exports, module) {
+  "node_modules/semver/internal/identifiers.js"(exports, module) {
     "use strict";
     var numeric = /^[0-9]+$/;
     var compareIdentifiers = (a, b) => {
@@ -202,9 +202,9 @@ var require_identifiers = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/classes/semver.js
+// node_modules/semver/classes/semver.js
 var require_semver = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/classes/semver.js"(exports, module) {
+  "node_modules/semver/classes/semver.js"(exports, module) {
     "use strict";
     var debug = require_debug();
     var { MAX_LENGTH, MAX_SAFE_INTEGER } = require_constants();
@@ -494,9 +494,9 @@ var require_semver = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/parse.js
+// node_modules/semver/functions/parse.js
 var require_parse = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/parse.js"(exports, module) {
+  "node_modules/semver/functions/parse.js"(exports, module) {
     "use strict";
     var SemVer = require_semver();
     var parse = (version, options, throwErrors = false) => {
@@ -516,9 +516,9 @@ var require_parse = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/valid.js
+// node_modules/semver/functions/valid.js
 var require_valid = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/valid.js"(exports, module) {
+  "node_modules/semver/functions/valid.js"(exports, module) {
     "use strict";
     var parse = require_parse();
     var valid = (version, options) => {
@@ -529,9 +529,9 @@ var require_valid = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/clean.js
+// node_modules/semver/functions/clean.js
 var require_clean = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/clean.js"(exports, module) {
+  "node_modules/semver/functions/clean.js"(exports, module) {
     "use strict";
     var parse = require_parse();
     var clean = (version, options) => {
@@ -542,9 +542,9 @@ var require_clean = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/inc.js
+// node_modules/semver/functions/inc.js
 var require_inc = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/inc.js"(exports, module) {
+  "node_modules/semver/functions/inc.js"(exports, module) {
     "use strict";
     var SemVer = require_semver();
     var inc = (version, release, options, identifier, identifierBase) => {
@@ -566,9 +566,9 @@ var require_inc = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/diff.js
+// node_modules/semver/functions/diff.js
 var require_diff = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/diff.js"(exports, module) {
+  "node_modules/semver/functions/diff.js"(exports, module) {
     "use strict";
     var parse = require_parse();
     var diff = (version1, version2) => {
@@ -610,9 +610,9 @@ var require_diff = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/major.js
+// node_modules/semver/functions/major.js
 var require_major = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/major.js"(exports, module) {
+  "node_modules/semver/functions/major.js"(exports, module) {
     "use strict";
     var SemVer = require_semver();
     var major = (a, loose) => new SemVer(a, loose).major;
@@ -620,9 +620,9 @@ var require_major = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/minor.js
+// node_modules/semver/functions/minor.js
 var require_minor = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/minor.js"(exports, module) {
+  "node_modules/semver/functions/minor.js"(exports, module) {
     "use strict";
     var SemVer = require_semver();
     var minor = (a, loose) => new SemVer(a, loose).minor;
@@ -630,9 +630,9 @@ var require_minor = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/patch.js
+// node_modules/semver/functions/patch.js
 var require_patch = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/patch.js"(exports, module) {
+  "node_modules/semver/functions/patch.js"(exports, module) {
     "use strict";
     var SemVer = require_semver();
     var patch = (a, loose) => new SemVer(a, loose).patch;
@@ -640,9 +640,9 @@ var require_patch = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/prerelease.js
+// node_modules/semver/functions/prerelease.js
 var require_prerelease = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/prerelease.js"(exports, module) {
+  "node_modules/semver/functions/prerelease.js"(exports, module) {
     "use strict";
     var parse = require_parse();
     var prerelease = (version, options) => {
@@ -653,9 +653,9 @@ var require_prerelease = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/compare.js
+// node_modules/semver/functions/compare.js
 var require_compare = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/compare.js"(exports, module) {
+  "node_modules/semver/functions/compare.js"(exports, module) {
     "use strict";
     var SemVer = require_semver();
     var compare = (a, b, loose) => new SemVer(a, loose).compare(new SemVer(b, loose));
@@ -663,9 +663,9 @@ var require_compare = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/rcompare.js
+// node_modules/semver/functions/rcompare.js
 var require_rcompare = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/rcompare.js"(exports, module) {
+  "node_modules/semver/functions/rcompare.js"(exports, module) {
     "use strict";
     var compare = require_compare();
     var rcompare = (a, b, loose) => compare(b, a, loose);
@@ -673,9 +673,9 @@ var require_rcompare = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/compare-loose.js
+// node_modules/semver/functions/compare-loose.js
 var require_compare_loose = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/compare-loose.js"(exports, module) {
+  "node_modules/semver/functions/compare-loose.js"(exports, module) {
     "use strict";
     var compare = require_compare();
     var compareLoose = (a, b) => compare(a, b, true);
@@ -683,9 +683,9 @@ var require_compare_loose = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/compare-build.js
+// node_modules/semver/functions/compare-build.js
 var require_compare_build = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/compare-build.js"(exports, module) {
+  "node_modules/semver/functions/compare-build.js"(exports, module) {
     "use strict";
     var SemVer = require_semver();
     var compareBuild = (a, b, loose) => {
@@ -697,9 +697,9 @@ var require_compare_build = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/sort.js
+// node_modules/semver/functions/sort.js
 var require_sort = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/sort.js"(exports, module) {
+  "node_modules/semver/functions/sort.js"(exports, module) {
     "use strict";
     var compareBuild = require_compare_build();
     var sort = (list2, loose) => list2.sort((a, b) => compareBuild(a, b, loose));
@@ -707,9 +707,9 @@ var require_sort = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/rsort.js
+// node_modules/semver/functions/rsort.js
 var require_rsort = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/rsort.js"(exports, module) {
+  "node_modules/semver/functions/rsort.js"(exports, module) {
     "use strict";
     var compareBuild = require_compare_build();
     var rsort = (list2, loose) => list2.sort((a, b) => compareBuild(b, a, loose));
@@ -717,9 +717,9 @@ var require_rsort = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/gt.js
+// node_modules/semver/functions/gt.js
 var require_gt = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/gt.js"(exports, module) {
+  "node_modules/semver/functions/gt.js"(exports, module) {
     "use strict";
     var compare = require_compare();
     var gt = (a, b, loose) => compare(a, b, loose) > 0;
@@ -727,9 +727,9 @@ var require_gt = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/lt.js
+// node_modules/semver/functions/lt.js
 var require_lt = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/lt.js"(exports, module) {
+  "node_modules/semver/functions/lt.js"(exports, module) {
     "use strict";
     var compare = require_compare();
     var lt = (a, b, loose) => compare(a, b, loose) < 0;
@@ -737,9 +737,9 @@ var require_lt = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/eq.js
+// node_modules/semver/functions/eq.js
 var require_eq = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/eq.js"(exports, module) {
+  "node_modules/semver/functions/eq.js"(exports, module) {
     "use strict";
     var compare = require_compare();
     var eq = (a, b, loose) => compare(a, b, loose) === 0;
@@ -747,9 +747,9 @@ var require_eq = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/neq.js
+// node_modules/semver/functions/neq.js
 var require_neq = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/neq.js"(exports, module) {
+  "node_modules/semver/functions/neq.js"(exports, module) {
     "use strict";
     var compare = require_compare();
     var neq = (a, b, loose) => compare(a, b, loose) !== 0;
@@ -757,9 +757,9 @@ var require_neq = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/gte.js
+// node_modules/semver/functions/gte.js
 var require_gte = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/gte.js"(exports, module) {
+  "node_modules/semver/functions/gte.js"(exports, module) {
     "use strict";
     var compare = require_compare();
     var gte = (a, b, loose) => compare(a, b, loose) >= 0;
@@ -767,9 +767,9 @@ var require_gte = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/lte.js
+// node_modules/semver/functions/lte.js
 var require_lte = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/lte.js"(exports, module) {
+  "node_modules/semver/functions/lte.js"(exports, module) {
     "use strict";
     var compare = require_compare();
     var lte = (a, b, loose) => compare(a, b, loose) <= 0;
@@ -777,9 +777,9 @@ var require_lte = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/cmp.js
+// node_modules/semver/functions/cmp.js
 var require_cmp = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/cmp.js"(exports, module) {
+  "node_modules/semver/functions/cmp.js"(exports, module) {
     "use strict";
     var eq = require_eq();
     var neq = require_neq();
@@ -827,9 +827,9 @@ var require_cmp = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/coerce.js
+// node_modules/semver/functions/coerce.js
 var require_coerce = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/coerce.js"(exports, module) {
+  "node_modules/semver/functions/coerce.js"(exports, module) {
     "use strict";
     var SemVer = require_semver();
     var parse = require_parse();
@@ -873,9 +873,9 @@ var require_coerce = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/truncate.js
+// node_modules/semver/functions/truncate.js
 var require_truncate = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/truncate.js"(exports, module) {
+  "node_modules/semver/functions/truncate.js"(exports, module) {
     "use strict";
     var parse = require_parse();
     var constants = require_constants();
@@ -914,9 +914,9 @@ var require_truncate = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/internal/lrucache.js
+// node_modules/semver/internal/lrucache.js
 var require_lrucache = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/internal/lrucache.js"(exports, module) {
+  "node_modules/semver/internal/lrucache.js"(exports, module) {
     "use strict";
     var LRUCache = class {
       constructor() {
@@ -952,9 +952,9 @@ var require_lrucache = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/classes/range.js
+// node_modules/semver/classes/range.js
 var require_range = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/classes/range.js"(exports, module) {
+  "node_modules/semver/classes/range.js"(exports, module) {
     "use strict";
     var SPACE_CHARACTERS = /\s+/g;
     var Range = class _Range {
@@ -1337,9 +1337,9 @@ var require_range = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/classes/comparator.js
+// node_modules/semver/classes/comparator.js
 var require_comparator = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/classes/comparator.js"(exports, module) {
+  "node_modules/semver/classes/comparator.js"(exports, module) {
     "use strict";
     var ANY = /* @__PURE__ */ Symbol("SemVer ANY");
     var Comparator = class _Comparator {
@@ -1450,9 +1450,9 @@ var require_comparator = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/satisfies.js
+// node_modules/semver/functions/satisfies.js
 var require_satisfies = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/functions/satisfies.js"(exports, module) {
+  "node_modules/semver/functions/satisfies.js"(exports, module) {
     "use strict";
     var Range = require_range();
     var satisfies = (version, range, options) => {
@@ -1467,9 +1467,9 @@ var require_satisfies = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/to-comparators.js
+// node_modules/semver/ranges/to-comparators.js
 var require_to_comparators = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/to-comparators.js"(exports, module) {
+  "node_modules/semver/ranges/to-comparators.js"(exports, module) {
     "use strict";
     var Range = require_range();
     var toComparators = (range, options) => new Range(range, options).set.map((comp) => comp.map((c) => c.value).join(" ").trim().split(" "));
@@ -1477,9 +1477,9 @@ var require_to_comparators = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/max-satisfying.js
+// node_modules/semver/ranges/max-satisfying.js
 var require_max_satisfying = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/max-satisfying.js"(exports, module) {
+  "node_modules/semver/ranges/max-satisfying.js"(exports, module) {
     "use strict";
     var SemVer = require_semver();
     var Range = require_range();
@@ -1506,9 +1506,9 @@ var require_max_satisfying = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/min-satisfying.js
+// node_modules/semver/ranges/min-satisfying.js
 var require_min_satisfying = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/min-satisfying.js"(exports, module) {
+  "node_modules/semver/ranges/min-satisfying.js"(exports, module) {
     "use strict";
     var SemVer = require_semver();
     var Range = require_range();
@@ -1535,9 +1535,9 @@ var require_min_satisfying = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/min-version.js
+// node_modules/semver/ranges/min-version.js
 var require_min_version = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/min-version.js"(exports, module) {
+  "node_modules/semver/ranges/min-version.js"(exports, module) {
     "use strict";
     var SemVer = require_semver();
     var Range = require_range();
@@ -1594,9 +1594,9 @@ var require_min_version = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/valid.js
+// node_modules/semver/ranges/valid.js
 var require_valid2 = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/valid.js"(exports, module) {
+  "node_modules/semver/ranges/valid.js"(exports, module) {
     "use strict";
     var Range = require_range();
     var validRange = (range, options) => {
@@ -1610,9 +1610,9 @@ var require_valid2 = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/outside.js
+// node_modules/semver/ranges/outside.js
 var require_outside = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/outside.js"(exports, module) {
+  "node_modules/semver/ranges/outside.js"(exports, module) {
     "use strict";
     var SemVer = require_semver();
     var Comparator = require_comparator();
@@ -1679,9 +1679,9 @@ var require_outside = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/gtr.js
+// node_modules/semver/ranges/gtr.js
 var require_gtr = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/gtr.js"(exports, module) {
+  "node_modules/semver/ranges/gtr.js"(exports, module) {
     "use strict";
     var outside = require_outside();
     var gtr = (version, range, options) => outside(version, range, ">", options);
@@ -1689,9 +1689,9 @@ var require_gtr = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/ltr.js
+// node_modules/semver/ranges/ltr.js
 var require_ltr = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/ltr.js"(exports, module) {
+  "node_modules/semver/ranges/ltr.js"(exports, module) {
     "use strict";
     var outside = require_outside();
     var ltr = (version, range, options) => outside(version, range, "<", options);
@@ -1699,9 +1699,9 @@ var require_ltr = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/intersects.js
+// node_modules/semver/ranges/intersects.js
 var require_intersects = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/intersects.js"(exports, module) {
+  "node_modules/semver/ranges/intersects.js"(exports, module) {
     "use strict";
     var Range = require_range();
     var intersects = (r1, r2, options) => {
@@ -1713,9 +1713,9 @@ var require_intersects = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/simplify.js
+// node_modules/semver/ranges/simplify.js
 var require_simplify = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/simplify.js"(exports, module) {
+  "node_modules/semver/ranges/simplify.js"(exports, module) {
     "use strict";
     var satisfies = require_satisfies();
     var compare = require_compare();
@@ -1763,9 +1763,9 @@ var require_simplify = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/subset.js
+// node_modules/semver/ranges/subset.js
 var require_subset = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/ranges/subset.js"(exports, module) {
+  "node_modules/semver/ranges/subset.js"(exports, module) {
     "use strict";
     var Range = require_range();
     var Comparator = require_comparator();
@@ -1925,9 +1925,9 @@ var require_subset = __commonJS({
   }
 });
 
-// ../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/index.js
+// node_modules/semver/index.js
 var require_semver2 = __commonJS({
-  "../dsh-search-providers/node_modules/.pnpm/semver@7.8.5/node_modules/semver/index.js"(exports, module) {
+  "node_modules/semver/index.js"(exports, module) {
     "use strict";
     var internalRe = require_re();
     var constants = require_constants();
