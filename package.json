@@ -1,6 +1,6 @@
 {
   "name": "@aero123421/dsh-search-providers",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "DeepSeek Harnessの検索プロバイダーと追加検索ツール",
   "type": "module",
   "license": "MIT",
@@ -54,7 +54,9 @@
     "@deepseek-ai/dsh-tool-web": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-tools": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-web": "0.2.1-alpha.2",
-    "@deepseek-ai/schemastery": "3.18.5-alpha.1"
+    "@deepseek-ai/schemastery": "3.18.5-alpha.1",
+    "@deepseek-ai/dsh-app-boot": "0.2.1-alpha.2",
+    "@deepseek-ai/dsh-brand": "0.2.1-alpha.2"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
@@ -74,6 +76,12 @@
     },
     "@deepseek-ai/schemastery": {
       "optional": true
+    },
+    "@deepseek-ai/dsh-app-boot": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-brand": {
+      "optional": true
     }
   },
   "scripts": {
@@ -86,9 +94,12 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.5-alpha.1",
+    "@deepseek-ai/dsh-app-boot": "0.2.1-alpha.2",
+    "@deepseek-ai/dsh-brand": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-client-connection": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-config-editor": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-credentials": "0.2.1-alpha.2",
+    "@deepseek-ai/dsh-plugin-manager": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-settings": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-tool-web": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-tools": "0.2.1-alpha.2",
@@ -97,12 +108,14 @@
     "@types/node": "^22.0.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
+    "@types/semver": "^7.8.0",
     "clsx": "^2.1.1",
     "esbuild": "0.28.2",
     "immer": "^10.2.0",
     "playwright": "^1.56.1",
     "react": "18.3.1",
     "react-dom": "18.3.1",
+    "semver": "^7.8.5",
     "typescript": "6.0.3",
     "use-sync-external-store": "^1.7.0",
     "yaml": "^2.9.1",

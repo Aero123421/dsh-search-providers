@@ -21,8 +21,10 @@ class MemoryCredentials extends CredentialProvider {
   async modifyRecord(key, mutate) { const next = await mutate(this.records.get(key)); if (next) { this.records.set(key, next); this.ctx.emit('credentials/record-updated', key) } return next }
   async deleteRecord(key) { this.records.delete(key); this.ctx.emit('credentials/record-updated', key) }
 }
-export async function hostFixture({ authenticate = () => true } = {}) {
+export async function hostFixture({ authenticate = () => true, manager, profileDir } = {}) {
   const ctx = new Context(), value = { providers: {}, tools: {}, nativeSearchProvider: 'deepseek' }
+  if (manager) ctx.provide('pluginManager', manager)
+  if (profileDir) ctx.provide('profileContext', { dir: profileDir })
   let revision = 0
   await ctx.plugin(MemoryCredentials)
   ctx.provide('settings', {

@@ -17,3 +17,6 @@
 .dsh-search-feature { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: .5px solid var(--dsw-alias-border-l3); font-size: 14px; }
 .dsh-search-feature:last-child { border-bottom: 0; }
 @media (max-width: 480px) { .dsh-search-provider { padding: 12px; } .dsh-search-actions { gap: 6px; } }
+
+.dsh-search-settings .dsh-search-update { border-bottom: 1px solid var(--dsw-alias-border-l3); padding-bottom: 16px; margin-bottom: 16px; overflow-wrap: anywhere; }
+.dsh-search-settings .dsh-search-update-notes { white-space: pre-wrap; max-height: 160px; overflow: auto; }
