@@ -192,7 +192,7 @@ export class Updates {
         this.operation.result = result; await this.save()
         const after = await this.bundle(); return this.result(result, after.version)
       } catch (error) {
-        if (admitted && this.operation?.id === operationId && !this.operation.result && !started) {
+        if (admitted && this.operation && this.operation.id === operationId && !this.operation.result && !started) {
           this.operation.result = { changed: false, application: 'failed', target: PACKAGE, stage: 'install', error: { code: 'operation-error' } }
           await this.save().catch(() => {})
         }
