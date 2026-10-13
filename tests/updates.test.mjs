@@ -3,15 +3,24 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { gzipSync } from 'node:zlib'
 import { createHash, randomUUID } from 'node:crypto'
 import { Updates, getCandidate, PACKAGE, REPOSITORY, supportsSource } from '../src/updates.ts'
 import { boundedFetch } from '../src/update-download.ts'
 import { UpdateController } from '../src/update-controller.ts'
 const runtime = '0.2.1-alpha.2'
 const version = '0.4.0', tag = 'v'+version, filename = `aero123421-dsh-search-providers-${version}.tgz`
-const bytes = Buffer.from('fixture-tarball')
+function archive(value) {
+  const body = Buffer.from(JSON.stringify(value)), header = Buffer.alloc(512)
+  header.write('package/package.json'); header.write('0000644\0', 100); header.write('0000000\0', 108); header.write('0000000\0', 116)
+  header.write(body.length.toString(8).padStart(11, '0')+'\0', 124); header.write('00000000000\0', 136); header.fill(32, 148, 156); header[156] = 48
+  header.write('ustar\0', 257); header.write('00', 263)
+  const checksum = header.reduce((sum, byte) => sum+byte, 0); header.write(checksum.toString(8).padStart(6,'0')+'\0 ',148)
+  return gzipSync(Buffer.concat([header, body, Buffer.alloc((512-body.length%512)%512+1024)]))
+}
 const release = () => ({ id: 2, tag_name: tag, draft: false, prerelease: false, body: 'Release notes', html_url: `https://github.com/${REPOSITORY}/releases/tag/${tag}`, assets: [filename, 'SHA256SUMS'].map((name, i) => ({ id: i+1, name, size: 10, browser_download_url: `https://github.com/${REPOSITORY}/releases/download/${tag}/${name}` })) })
 const manifest = () => ({ name: PACKAGE, version, dsh: { bundle: { patch: './cordis.patch.yml' } }, peerDependencies: { '@deepseek-ai/dsh-web': runtime } })
+const bytes = archive(manifest())
 function fetcher(releaseValue = release(), manifestValue = manifest()) {
   return async url => String(url).endsWith('releases/latest') ? Response.json(releaseValue) : String(url).endsWith('package.json') ? Response.json(manifestValue) : String(url).endsWith('SHA256SUMS') ? new Response(`${createHash('sha256').update(bytes).digest('hex')}  ${filename}\n`) : new Response(bytes)
 }
@@ -136,4 +145,32 @@ test('Another Client cannot settle an unresolved operation or start a second ins
   assert.equal((await third.install(checked.candidate.id, randomUUID())).status, 'unknown')
   assert.equal(installs, 1)
   assert.equal((await updates.status()).operation, firstId)
+})
+test('A busy install rejects another operation ID and a check cannot masquerade as an install', async t => {
+  let settle, begun
+  const start = new Promise(resolve => { begun = resolve })
+  const { updates } = await fixture(t, { manager: { installBundle: async () => { begun(); return new Promise(resolve => { settle = resolve }) } } })
+  const checked = await updates.check()
+  const first = updates.install(checked.candidate.id, randomUUID()); await start
+  await assert.rejects(updates.install(checked.candidate.id, randomUUID()), /busy/)
+  settle({ changed: false, application: 'failed', stage: 'install', target: PACKAGE }); await first
+})
+test('Matching checksums never admit an archive with the wrong package, version or DSH peers', async t => {
+  for (const value of [{ ...manifest(), name: 'wrong-package' }, { ...manifest(), version: '0.2.0' }, { ...manifest(), peerDependencies: { '@deepseek-ai/dsh-web': '99.0.0' } }]) {
+    const wrong = archive(value), normal = fetcher()
+    const { updates, calls } = await fixture(t, { bundle: { source: 'file:/downloads/aero123421-dsh-search-providers-0.3.0.tgz' }, fetcher: async url => String(url).endsWith('SHA256SUMS') ? new Response(`${createHash('sha256').update(wrong).digest('hex')}  ${filename}\n`) : String(url).endsWith(filename) ? new Response(wrong) : normal(url) })
+    const checked = await updates.check()
+    assert.equal((await updates.install(checked.candidate.id, randomUUID())).status, 'failed')
+    assert.equal(calls.length, 0)
+  }
+})
+test('A busy refusal clears the unadmitted Client ID before reconciling the Host operation', async () => {
+  let count = 0
+  const controller = new UpdateController({ rpc: { call: async (_base, method, payload) => {
+    count++
+    if (method.endsWith('update-install')) return { ok: false, error: { code: 'dsh-search-providers/busy' } }
+    if (count > 2) assert.equal(payload.operationId, undefined)
+    return { ok: true, value: { status: 'available', running: '0.3.0', candidate: { id: 'fixture', version, url: `https://github.com/${REPOSITORY}/releases/tag/${tag}`, runtime, notes: '' } } }
+  } } })
+  await controller.status(); await controller.install(); assert.equal(controller.getSnapshot().status, 'failed'); await controller.status(); controller.dispose()
 })

@@ -77,7 +77,7 @@ export function apply(ctx: Context, config: LiveConfig): void {
           return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } }, { headers: { 'cache-control': 'no-store' } })
         } catch (error) {
           if (rpcId === undefined) return new Response('invalid request', { status: 400 })
-          const code = error instanceof SearchError ? error.code : 'unavailable'
+          const code = error instanceof SearchError ? error.code : error instanceof Error && error.message === 'busy' ? 'busy' : 'unavailable'
           return Response.json({ type: 'server-response', rpcId, result: { ok: false, error: { code: `${NS}/${code}`, message: code, details: {} } } }, { headers: { 'cache-control': 'no-store' } })
         }
       },

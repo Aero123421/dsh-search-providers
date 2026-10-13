@@ -29,8 +29,19 @@ export class UpdateController {
     const generation = ++this.generation
     try {
       const response = await this.connection.rpc.call('/api', `${NS}/update-${method}`, payload)
-      if (!response.ok) throw new Error(response.error.code)
-      if (generation === this.generation) this.publish(parse(response.value))
+      if (!response.ok) {
+        if (method === 'install' && response.error.code.endsWith('/busy') && generation === this.generation) {
+          this.operation = undefined
+          try { globalThis.localStorage?.removeItem(this.storageKey) } catch { /* Optional storage. */ }
+          this.publish({ ...this.view, status: 'failed', reason: 'busy' }); return
+        }
+        throw new Error(response.error.code)
+      }
+      if (generation === this.generation) {
+        const view = parse(response.value)
+        if (view.operation) { this.operation = view.operation; try { globalThis.localStorage?.setItem(this.storageKey, view.operation) } catch { /* Optional storage. */ } }
+        this.publish(view)
+      }
     } catch { if (generation === this.generation) this.publish({ ...this.view, status: method === 'install' || this.view.operation ? 'unknown' : 'failed', reason: 'connection' }) }
   }
   status = () => this.call('status', this.operation ? { operationId: this.operation } : {})

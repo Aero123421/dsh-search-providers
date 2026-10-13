@@ -2,6 +2,7 @@ import { randomUUID, createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rename, writeFile, lstat } from 'node:fs/promises'
 import { join, resolve, relative, isAbsolute } from 'node:path'
 import { boundedFetch } from './update-download.ts'
+import { gunzipSync } from 'node:zlib'
 import semver from 'semver'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { BundleInfo, ChangeResult, ManagementError, PluginInstallRequestId } from '@deepseek-ai/dsh-plugin-manager/types'
@@ -35,6 +36,28 @@ function record(value: unknown): Record<string, unknown> {
 function errorCode(value: unknown): ManagementError['code'] {
   const values: ManagementError['code'][] = ['management-required', 'unaddressable', 'unknown-plugin', 'invalid-spec', 'ambiguous-install', 'not-bundle', 'not-removable', 'stop-profile', 'bundle-in-use', 'stale-approval', 'incompatible-version', 'operation-error']
   return values.find(code => code === value) ?? 'operation-error'
+}
+export function packageManifest(bytes: Buffer): Record<string, unknown> {
+  const tar = gunzipSync(bytes, { maxOutputLength: 128 * 1024 * 1024 })
+  let manifest: Record<string, unknown> | undefined
+  for (let offset = 0; offset + 512 <= tar.length;) {
+    const header = tar.subarray(offset, offset + 512)
+    if (header.every(byte => byte === 0)) break
+    const name = header.subarray(0, 100).toString().replace(/\0.*$/, '')
+    const prefix = header.subarray(345, 500).toString().replace(/\0.*$/, '')
+    const sizeText = header.subarray(124, 136).toString().replace(/\0.*$/, '').trim()
+    if (!/^[0-7]+$/.test(sizeText)) throw new Error('metadata')
+    const size = Number.parseInt(sizeText, 8)
+    if (!Number.isSafeInteger(size) || offset + 512 + size > tar.length) throw new Error('metadata')
+    const path = prefix ? `${prefix}/${name}` : name
+    if (path === 'package/package.json') {
+      if (manifest || ![0, 48].includes(header[156]!) || size > 65536) throw new Error('metadata')
+      manifest = record(JSON.parse(tar.subarray(offset + 512, offset + 512 + size).toString()))
+    }
+    offset += 512 + Math.ceil(size / 512) * 512
+  }
+  if (!manifest) throw new Error('metadata')
+  return manifest
 }
 async function json(url: string, fetcher: typeof fetch): Promise<unknown> {
   const response = await fetcher(url, { redirect: 'error', signal: AbortSignal.timeout(15_000), headers: { accept: 'application/vnd.github+json' } })
@@ -71,6 +94,7 @@ export class Updates {
   private view: UpdateView
   private candidate?: Candidate | undefined
   private operation?: Operation | undefined
+  private pendingOperation?: string | undefined
   private pending?: Promise<UpdateView> | undefined
   private readonly getManager: () => Manager | undefined
   private readonly dir: string | undefined
@@ -161,7 +185,8 @@ export class Updates {
     return this.pending
   }
   install(candidateId: unknown, operationId: unknown): Promise<UpdateView> {
-    if (this.pending) return this.pending
+    if (this.pending) return this.pendingOperation === operationId ? this.pending : Promise.reject(new Error('busy'))
+    this.pendingOperation = typeof operationId === 'string' ? operationId : undefined
     this.pending = (async () => {
       let started = false, admitted = false
       try {
@@ -181,6 +206,10 @@ export class Updates {
           if (!match || match[2] !== candidate.filename) throw new Error('checksum')
           const bytes = await boundedFetch(candidate.tarball, 32 * 1024 * 1024, { fetcher: this.fetcher })
           if (createHash('sha256').update(bytes).digest('hex') !== match[1]!.toLowerCase()) throw new Error('checksum')
+          const manifest = packageManifest(bytes)
+          if (manifest.name !== PACKAGE || manifest.version !== candidate.version || record(record(manifest.dsh).bundle).patch !== './cordis.patch.yml') throw new Error('metadata')
+          const peers = Object.entries(record(manifest.peerDependencies)).filter(([name]) => name === '@deepseek-ai/dsh' || name.startsWith('@deepseek-ai/dsh-'))
+          if (!peers.length || peers.some(([, range]) => typeof range !== 'string' || !semver.validRange(range) || !semver.satisfies(this.runtime, range, { includePrerelease: true }))) throw new Error('incompatible')
           const directory = await mkdtemp(join(this.dir!, '.dsh-search-update', 'verified-'))
           spec = join(directory, candidate.filename)
           await writeFile(spec, bytes, { flag: 'wx', mode: 0o600 })
@@ -198,7 +227,7 @@ export class Updates {
         }
         return this.fail(error, this.operation && !this.operation.result ? 'unknown' : 'failed')
       }
-    })().finally(() => { this.pending = undefined })
+    })().finally(() => { this.pending = undefined; this.pendingOperation = undefined })
     return this.pending
   }
 }

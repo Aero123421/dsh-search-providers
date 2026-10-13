@@ -2617,6 +2617,7 @@ async function boundedFetch(url, limit, { fetcher = fetch, signal } = {}) {
 
 // src/updates.ts
 var import_semver = __toESM(require_semver2(), 1);
+import { gunzipSync } from "node:zlib";
 import { brandString } from "@deepseek-ai/dsh-brand";
 var PACKAGE = "@aero123421/dsh-search-providers";
 var REPOSITORY = "Aero123421/dsh-search-providers";
@@ -2635,6 +2636,28 @@ function record(value) {
 function errorCode(value) {
   const values = ["management-required", "unaddressable", "unknown-plugin", "invalid-spec", "ambiguous-install", "not-bundle", "not-removable", "stop-profile", "bundle-in-use", "stale-approval", "incompatible-version", "operation-error"];
   return values.find((code) => code === value) ?? "operation-error";
+}
+function packageManifest(bytes) {
+  const tar = gunzipSync(bytes, { maxOutputLength: 128 * 1024 * 1024 });
+  let manifest;
+  for (let offset = 0; offset + 512 <= tar.length; ) {
+    const header = tar.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+    const name2 = header.subarray(0, 100).toString().replace(/\0.*$/, "");
+    const prefix = header.subarray(345, 500).toString().replace(/\0.*$/, "");
+    const sizeText = header.subarray(124, 136).toString().replace(/\0.*$/, "").trim();
+    if (!/^[0-7]+$/.test(sizeText)) throw new Error("metadata");
+    const size = Number.parseInt(sizeText, 8);
+    if (!Number.isSafeInteger(size) || offset + 512 + size > tar.length) throw new Error("metadata");
+    const path = prefix ? `${prefix}/${name2}` : name2;
+    if (path === "package/package.json") {
+      if (manifest || ![0, 48].includes(header[156]) || size > 65536) throw new Error("metadata");
+      manifest = record(JSON.parse(tar.subarray(offset + 512, offset + 512 + size).toString()));
+    }
+    offset += 512 + Math.ceil(size / 512) * 512;
+  }
+  if (!manifest) throw new Error("metadata");
+  return manifest;
 }
 async function json(url, fetcher) {
   const response = await fetcher(url, { redirect: "error", signal: AbortSignal.timeout(15e3), headers: { accept: "application/vnd.github+json" } });
@@ -2683,6 +2706,7 @@ var Updates = class {
   view;
   candidate;
   operation;
+  pendingOperation;
   pending;
   getManager;
   dir;
@@ -2802,7 +2826,8 @@ var Updates = class {
     return this.pending;
   }
   install(candidateId, operationId) {
-    if (this.pending) return this.pending;
+    if (this.pending) return this.pendingOperation === operationId ? this.pending : Promise.reject(new Error("busy"));
+    this.pendingOperation = typeof operationId === "string" ? operationId : void 0;
     this.pending = (async () => {
       let started = false, admitted = false;
       try {
@@ -2823,6 +2848,10 @@ var Updates = class {
           if (!match || match[2] !== candidate.filename) throw new Error("checksum");
           const bytes = await boundedFetch(candidate.tarball, 32 * 1024 * 1024, { fetcher: this.fetcher });
           if (createHash2("sha256").update(bytes).digest("hex") !== match[1].toLowerCase()) throw new Error("checksum");
+          const manifest = packageManifest(bytes);
+          if (manifest.name !== PACKAGE || manifest.version !== candidate.version || record(record(manifest.dsh).bundle).patch !== "./cordis.patch.yml") throw new Error("metadata");
+          const peers = Object.entries(record(manifest.peerDependencies)).filter(([name2]) => name2 === "@deepseek-ai/dsh" || name2.startsWith("@deepseek-ai/dsh-"));
+          if (!peers.length || peers.some(([, range]) => typeof range !== "string" || !import_semver.default.validRange(range) || !import_semver.default.satisfies(this.runtime, range, { includePrerelease: true }))) throw new Error("incompatible");
           const directory = await mkdtemp(join(this.dir, ".dsh-search-update", "verified-"));
           spec = join(directory, candidate.filename);
           await writeFile(spec, bytes, { flag: "wx", mode: 384 });
@@ -2845,6 +2874,7 @@ var Updates = class {
       }
     })().finally(() => {
       this.pending = void 0;
+      this.pendingOperation = void 0;
     });
     return this.pending;
   }
@@ -3079,7 +3109,7 @@ function apply(ctx, config) {
           return Response.json({ type: "server-response", rpcId, result: { ok: true, value } }, { headers: { "cache-control": "no-store" } });
         } catch (error) {
           if (rpcId === void 0) return new Response("invalid request", { status: 400 });
-          const code = error instanceof SearchError ? error.code : "unavailable";
+          const code = error instanceof SearchError ? error.code : error instanceof Error && error.message === "busy" ? "busy" : "unavailable";
           return Response.json({ type: "server-response", rpcId, result: { ok: false, error: { code: `${NS}/${code}`, message: code, details: {} } } }, { headers: { "cache-control": "no-store" } });
         }
       }
