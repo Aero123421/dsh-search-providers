@@ -73,11 +73,11 @@ export function apply(ctx: Context, config: LiveConfig): void {
           if (envelope.type !== 'client-request' || typeof envelope.rpcId !== 'string' || envelope.rpcId.length > 100 || envelope.method !== endpoint) return new Response('invalid request', { status: 400 })
           rpcId = envelope.rpcId; request.signal.throwIfAborted()
           const payload = object(envelope.payload)
-          const value = method === 'update-status' ? await updates.status(payload.operationId) : method === 'update-check' ? await updates.check() : method === 'update-install' ? await updates.install(payload.candidateId, payload.operationId) : await broker.dispatch(method, envelope.payload)
+          const value = method === 'update-status' ? await updates.status(payload.operationId) : method === 'update-check' ? await updates.check() : method === 'update-install' ? await updates.install(payload.candidateId, payload.operationId, payload.profileKey) : await broker.dispatch(method, envelope.payload)
           return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } }, { headers: { 'cache-control': 'no-store' } })
         } catch (error) {
           if (rpcId === undefined) return new Response('invalid request', { status: 400 })
-          const code = error instanceof SearchError ? error.code : error instanceof Error && error.message === 'busy' ? 'busy' : 'unavailable'
+          const code = error instanceof SearchError ? error.code : error instanceof Error && ['busy', 'profile-changed'].includes(error.message) ? error.message : 'unavailable'
           return Response.json({ type: 'server-response', rpcId, result: { ok: false, error: { code: `${NS}/${code}`, message: code, details: {} } } }, { headers: { 'cache-control': 'no-store' } })
         }
       },
