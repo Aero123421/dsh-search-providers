@@ -29,6 +29,7 @@ export const en = {
   'updateReason_checksum': 'The checksum did not match.',
   'updateReason_connection': 'The connection was interrupted.',
   'updateReason_profile-changed': 'The connection target changed. Check for updates again.',
+  'updateReason_already-installed': 'DSH refused to install over the package that is already installed, and it was not removed.',
   'updateReason_other': 'Metadata, download, or installation failed. See Releases or the plugin manager for details.',
 
   nav: 'Web search provider', title: 'Web search provider', native: 'DSH default', default: 'Default', setDefault: 'Use for web search',
@@ -80,6 +81,7 @@ export const ja: Dictionary = {
   'updateReason_checksum': 'チェックサムが一致しません。',
   'updateReason_connection': '接続が切れました。',
   'updateReason_profile-changed': '接続先が変わりました。更新を再確認してください。',
+  'updateReason_already-installed': '導入済みパッケージへの上書きをDSHが拒否し、パッケージは外れていません。',
   'updateReason_other': 'metadataの確認・取得・導入に失敗しました。Releaseまたはplugin managerで詳細を確認してください。',
 
   nav: '検索プロバイダー', title: '検索プロバイダー', native: 'DSH標準', default: '既定', setDefault: '通常検索に使う',
@@ -129,6 +131,7 @@ export const zh: Dictionary = {
   'updateReason_checksum': '校验和不匹配。',
   'updateReason_connection': '连接已中断。',
   'updateReason_profile-changed': '连接目标已更改。请重新检查更新。',
+  'updateReason_already-installed': 'DSH 拒绝覆盖已安装的包，且该包未被移除。',
   'updateReason_other': '元数据、下载或安装失败。请在 Release 或 plugin manager 中查看详情。',
 
   nav: '网页搜索提供商', title: '网页搜索提供商', native: 'DSH 默认', default: '默认', setDefault: '用于网页搜索',

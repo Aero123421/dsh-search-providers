@@ -2633,8 +2633,17 @@ function record(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("metadata");
   return value;
 }
+function changeErrorCode(result) {
+  return String(result.error?.code ?? "");
+}
+async function replaceInstalled(manager, spec, enabled, requestId) {
+  if (typeof manager.removeBundle !== "function") return void 0;
+  const removed = await manager.removeBundle(PACKAGE);
+  if (removed.application === "cancelled" || removed.application === "failed" && changeErrorCode(removed) !== "stop-profile") return removed;
+  return manager.installBundle(spec, { enabled, requestId });
+}
 function errorCode(value) {
-  const values = ["management-required", "unaddressable", "unknown-plugin", "invalid-spec", "ambiguous-install", "not-bundle", "not-removable", "stop-profile", "bundle-in-use", "stale-approval", "incompatible-version", "operation-error"];
+  const values = ["management-required", "unaddressable", "unknown-plugin", "invalid-spec", "ambiguous-install", "not-bundle", "not-removable", "stop-profile", "bundle-in-use", "stale-approval", "incompatible-version", "operation-error", "already-installed"];
   return values.find((code) => code === value) ?? "operation-error";
 }
 function packageManifest(bytes) {
@@ -2867,11 +2876,17 @@ var Updates = class {
         if (latest.source !== before.source || latest.enabled !== before.enabled) throw new Error("settings-changed");
         if (this.closed) throw new Error("cancelled");
         started = true;
-        const result = await this.manager.installBundle(spec, { enabled: before.enabled, requestId: brandString(operationId) });
+        const manager = this.manager;
+        const requestId = brandString(operationId);
+        let result = await manager.installBundle(spec, { enabled: before.enabled, requestId });
+        if (changeErrorCode(result) === "already-installed") {
+          const replaced = await replaceInstalled(manager, spec, before.enabled, requestId);
+          if (replaced) result = replaced;
+        }
         this.operation.result = result;
         await this.save();
-        const after = await this.bundle();
-        return this.result(result, after.version);
+        const installed = this.closed ? (await manager.listBundles()).find((row) => row.name === PACKAGE)?.version : (await this.bundle()).version;
+        return this.result(result, installed);
       } catch (error) {
         if (admitted && this.operation && this.operation.id === operationId && !this.operation.result && !started) {
           this.operation.result = { changed: false, application: "failed", target: PACKAGE, stage: "install", error: { code: "operation-error" } };
@@ -2889,7 +2904,7 @@ var Updates = class {
 };
 
 // src/version.ts
-var VERSION = "0.3.1";
+var VERSION = "0.3.2";
 
 // src/tools.ts
 import { defineTool } from "@deepseek-ai/dsh-tools";

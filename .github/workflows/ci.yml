@@ -13,6 +13,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm run test:peers
       - run: npm run build
       - run: git diff --exit-code -- dist
       - run: npm run test:compat

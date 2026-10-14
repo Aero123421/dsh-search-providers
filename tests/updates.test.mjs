@@ -204,6 +204,76 @@ test('Authenticated Host route returns busy for an unadmitted Client installatio
   await assert.rejects(host.rpc('update-install', { profileKey: checked.profileKey, candidateId: checked.candidate.id, operationId: randomUUID() }), /dsh-search-providers\/busy$/)
   releaseInstall({ changed: false, application: 'failed', target: PACKAGE, stage: 'install', version: bundle.version }); await first
 })
+test('HMR already-installed removes through the manager, then installs, including after this plugin stops', async t => {
+  const { updates, dir, manager, calls } = await fixture(t)
+  const order = []
+  manager.installBundle = async (spec, config) => {
+    order.push('install')
+    calls.push({ spec, config })
+    if (calls.length === 1) return { changed: false, application: 'failed', stage: 'install', target: spec, error: { code: 'already-installed' } }
+    manager.listBundles = async () => [{ name: PACKAGE, installed: true, enabled: false, version, source: spec.startsWith('github:') ? spec : `file:${spec}` }]
+    return { changed: true, application: 'restart-required', stage: 'install', target: spec, version, bundle: PACKAGE }
+  }
+  manager.removeBundle = async name => {
+    order.push('remove')
+    assert.equal(name, PACKAGE)
+    updates.dispose()
+    return { changed: true, application: 'applied', stage: 'remove', target: name }
+  }
+  const checked = await updates.check(), id = randomUUID()
+  const result = await updates.install(checked.candidate.id, id, updates.profileKey)
+  assert.equal(result.status, 'restart-required')
+  assert.deepEqual(order, ['install', 'remove', 'install'])
+  assert.equal(calls[1].config.enabled, false)
+  assert.equal(calls[1].config.requestId, id)
+  assert.equal(calls[0].config.requestId, id)
+  const restarted = new Updates(() => manager, dir, version, runtime, fetcher())
+  assert.equal((await restarted.status()).status, 'applied')
+})
+test('stop-profile keeps the package and still installs; other removal failures do not', async t => {
+  const stop = await fixture(t)
+  let installs = 0
+  stop.manager.installBundle = async (spec, config) => {
+    installs++
+    stop.calls.push({ spec, config })
+    if (installs === 1) return { changed: false, application: 'failed', stage: 'install', target: spec, error: { code: 'already-installed' } }
+    stop.bundle.version = version
+    return { changed: true, application: 'restart-required', stage: 'install', target: spec, version, bundle: PACKAGE }
+  }
+  stop.manager.removeBundle = async () => ({ changed: false, application: 'failed', stage: 'remove', target: PACKAGE, error: { code: 'stop-profile' } })
+  const checked = await stop.updates.check()
+  assert.equal((await stop.updates.install(checked.candidate.id, randomUUID(), stop.updates.profileKey)).status, 'restart-required')
+  assert.equal(installs, 2)
+  const blocked = await fixture(t)
+  let blockedInstalls = 0
+  blocked.manager.installBundle = async (spec) => {
+    blockedInstalls++
+    return { changed: false, application: 'failed', stage: 'install', target: spec, error: { code: 'already-installed' } }
+  }
+  blocked.manager.removeBundle = async () => ({ changed: false, application: 'failed', stage: 'remove', target: PACKAGE, error: { code: 'not-removable' } })
+  const blockedCheck = await blocked.updates.check()
+  const failed = await blocked.updates.install(blockedCheck.candidate.id, randomUUID(), blocked.updates.profileKey)
+  assert.equal(failed.status, 'failed')
+  assert.equal(failed.reason, 'not-removable')
+  assert.equal(blockedInstalls, 1)
+})
+test('already-installed without removeBundle stays failed and does not pretend the package changed', async t => {
+  const { updates, calls } = await fixture(t, { manager: { installBundle: async (spec, config) => { calls.push({ spec, config }); return { changed: false, application: 'failed', stage: 'install', target: spec, error: { code: 'already-installed' } } } } })
+  const checked = await updates.check()
+  const result = await updates.install(checked.candidate.id, randomUUID(), updates.profileKey)
+  assert.equal(result.status, 'failed')
+  assert.equal(result.reason, 'already-installed')
+  assert.equal(calls.length, 1)
+  assert.equal((await updates.status()).reason, 'already-installed')
+})
+test('A release manifest range accepts 0.2.1-alpha.3 and rejects 0.3 prereleases', async () => {
+  const range = '>=0.2.1-alpha.2 <0.3.0-0'
+  const ranged = () => ({ ...manifest(), peerDependencies: { '@deepseek-ai/dsh-web': range, '@deepseek-ai/dsh-app-boot': range } })
+  assert.equal((await getCandidate('0.2.1-alpha.3', fetcher(release(), ranged()))).version, version)
+  assert.equal((await getCandidate('0.2.2-rc.1', fetcher(release(), ranged()))).version, version)
+  await assert.rejects(getCandidate('0.3.0-alpha.1', fetcher(release(), ranged())), /incompatible/)
+  await assert.rejects(getCandidate('0.2.1-alpha.1', fetcher(release(), ranged())), /incompatible/)
+})
 test('A released-name local directory or symbolic link is not a tarball installation', async t => {
   const { dir, updates, bundle } = await fixture(t)
   const directory = join(dir, 'directory', 'aero123421-dsh-search-providers-0.3.0.tgz')

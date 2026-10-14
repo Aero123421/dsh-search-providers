@@ -14,6 +14,7 @@ export interface Manager {
   listBundles(): Promise<BundleInfo[]>
   installBundle(spec: string, options: { enabled: boolean; requestId: PluginInstallRequestId }): Promise<ChangeResult>
   waitForInstall(requestId: PluginInstallRequestId): Promise<ChangeResult | null>
+  removeBundle?(name: string): Promise<ChangeResult>
 }
 export type UpdateStatus = 'idle' | 'available' | 'current' | 'unavailable' | 'incompatible' | 'checking' | 'installing' | 'unknown' | 'restart-required' | 'applied' | 'overridden' | 'failed' | 'cancelled'
 interface Candidate { id: string; version: string; tag: string; notes: string; url: string; runtime: string; filename: string; tarball: string; checksum: string }
@@ -33,9 +34,23 @@ function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('metadata')
   return value as Record<string, unknown>
 }
+function changeErrorCode(result: ChangeResult): string {
+  return String(result.error?.code ?? '')
+}
+// HMR's installBundle returns already-installed, without changing the profile, when the spec names an installed package.
+// The plugin manager page then calls removeBundle and installBundle from outside that package. removeBundle stops this
+// plugin before it resolves; the captured manager is the service that continues, so this stop is not a cancellation.
+// stop-profile leaves the package installed (no HMR), and installBundle follows, as that page does. Other removal
+// failures do not install.
+async function replaceInstalled(manager: Manager, spec: string, enabled: boolean, requestId: PluginInstallRequestId): Promise<ChangeResult | undefined> {
+  if (typeof manager.removeBundle !== 'function') return undefined
+  const removed = await manager.removeBundle(PACKAGE)
+  if (removed.application === 'cancelled' || (removed.application === 'failed' && changeErrorCode(removed) !== 'stop-profile')) return removed
+  return manager.installBundle(spec, { enabled, requestId })
+}
 function errorCode(value: unknown): ManagementError['code'] {
-  const values: ManagementError['code'][] = ['management-required', 'unaddressable', 'unknown-plugin', 'invalid-spec', 'ambiguous-install', 'not-bundle', 'not-removable', 'stop-profile', 'bundle-in-use', 'stale-approval', 'incompatible-version', 'operation-error']
-  return values.find(code => code === value) ?? 'operation-error'
+  const values = ['management-required', 'unaddressable', 'unknown-plugin', 'invalid-spec', 'ambiguous-install', 'not-bundle', 'not-removable', 'stop-profile', 'bundle-in-use', 'stale-approval', 'incompatible-version', 'operation-error', 'already-installed'] as const
+  return (values.find(code => code === value) ?? 'operation-error') as ManagementError['code']
 }
 export function packageManifest(bytes: Buffer): Record<string, unknown> {
   const tar = gunzipSync(bytes, { maxOutputLength: 128 * 1024 * 1024 })
@@ -225,9 +240,19 @@ export class Updates {
         if (latest.source !== before.source || latest.enabled !== before.enabled) throw new Error('settings-changed')
         if (this.closed) throw new Error('cancelled')
         started = true
-        const result = await this.manager!.installBundle(spec, { enabled: before.enabled, requestId: brandString<PluginInstallRequestId>(operationId) })
+        const manager = this.manager!
+        const requestId = brandString<PluginInstallRequestId>(operationId)
+        let result = await manager.installBundle(spec, { enabled: before.enabled, requestId })
+        if (changeErrorCode(result) === 'already-installed') {
+          const replaced = await replaceInstalled(manager, spec, before.enabled, requestId)
+          if (replaced) result = replaced
+        }
         this.operation.result = result; await this.save()
-        const after = await this.bundle(); return this.result(result, after.version)
+        // Disposal during removeBundle makes this.bundle() report cancellation. The manager service can still list.
+        const installed = this.closed
+          ? (await manager.listBundles()).find(row => row.name === PACKAGE)?.version
+          : (await this.bundle()).version
+        return this.result(result, installed)
       } catch (error) {
         if (admitted && this.operation && this.operation.id === operationId && !this.operation.result && !started) {
           this.operation.result = { changed: false, application: 'failed', target: PACKAGE, stage: 'install', error: { code: 'operation-error' } }

@@ -8,10 +8,13 @@ npm run typecheck
 npm test
 npm run build
 npm run test:compat
+npm run test:peers
 npx playwright install chromium
 npm run test:browser
 npm run test:native
 ```
+
+`test:peers` は、インストール済みの `@deepseek-ai/dsh-app-boot` にある起動時の peer 判定で、この package の `@deepseek-ai/dsh*` peer を確認します。あわせて npm の `@deepseek-ai/dsh` を読み、`alpha` dist-tag と公開版の最大が peer 範囲の外なら失敗します。`latest` dist-tag は `0.2.0-rc.2` のままなので、対象には使いません。
 
 `test:native` はPATH上の `dsh` と `pnpm` を使います。`DSH_HOME`を一時ディレクトリに設定し、実際のWebプロファイルにプラグインを追加します。通常のDSH設定には書き込みません。テスト用APIキーは架空の値で、外部APIへ送信しません。
 
