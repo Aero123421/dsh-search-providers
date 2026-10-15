@@ -9,6 +9,8 @@
 .dsh-search-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dsw-alias-label-secondary); flex-wrap: wrap; }
 .dsh-search-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .dsh-search-muted { margin: 4px 0 0; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-secondary); }
+.dsh-search-note { margin: 0; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-secondary); overflow-wrap: anywhere; }
+.dsh-search-note a { color: inherit; }
 .dsh-search-error { margin: 0; font-size: 13px; line-height: 20px; color: var(--dsw-alias-state-error-primary); }
 .dsh-search-loading { display: grid; place-items: center; min-height: 120px; }
 .dsh-search-dialog { width: min(520px, 100%); color: var(--dsw-alias-label-primary); --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2); --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2); }

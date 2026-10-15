@@ -2441,6 +2441,39 @@ var SearchAdapter = class {
   }
 };
 
+// src/search-fallback.ts
+function quotaLimited(error) {
+  return error instanceof SearchError && error.code === "rate-limited";
+}
+function skipFallback(error) {
+  return error instanceof SearchError && (error.code === "missing-key" || error.code === "provider-disabled" || error.code === "authentication-failed" || quotaLimited(error));
+}
+async function searchWithFallback(options) {
+  const { primary, adapters, request, signal, capability } = options;
+  const primaryAdapter = adapters.get(primary);
+  if (!primaryAdapter) throw new SearchError("invalid-request", "Unknown search provider");
+  let primaryError;
+  try {
+    return await primaryAdapter.search(request, signal, capability);
+  } catch (error) {
+    if (signal?.aborted || !quotaLimited(error)) throw error;
+    primaryError = error;
+  }
+  for (const row of PROVIDERS) {
+    const provider = providerOf(row.id);
+    if (provider.id === primary || provider.webSearch === false) continue;
+    if (capability && !provider.capabilities.includes(capability)) continue;
+    const adapter = adapters.get(provider.id);
+    if (!adapter?.available()) continue;
+    try {
+      return await adapter.search(request, signal, capability);
+    } catch (error) {
+      if (signal?.aborted || !skipFallback(error)) throw error;
+    }
+  }
+  throw primaryError;
+}
+
 // src/broker.ts
 import { credentialKey, credentialRef } from "@deepseek-ai/dsh-credentials";
 import { createHash } from "node:crypto";
@@ -2633,8 +2666,59 @@ function record(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("metadata");
   return value;
 }
+function changeErrorCode(result) {
+  return String(result.error?.code ?? "");
+}
+async function replaceInstalled(manager, spec, enabled, previous, requestId) {
+  if (typeof manager.removeBundle !== "function") return void 0;
+  let removed;
+  try {
+    removed = await manager.removeBundle(PACKAGE);
+  } catch (error) {
+    const outcome2 = await restoreIfMissing(manager, enabled, previous, void 0);
+    if (outcome2) return failedInstall(spec, outcome2);
+    throw error;
+  }
+  if (removed.application === "cancelled" || removed.application === "failed" && changeErrorCode(removed) !== "stop-profile") return removed;
+  const removedPackage = removed.application === "applied" || removed.application === "restart-required";
+  let installed;
+  try {
+    installed = await manager.installBundle(spec, { enabled, requestId });
+  } catch (error) {
+    if (!removedPackage) throw error;
+    const outcome2 = await restoreIfMissing(manager, enabled, previous, void 0);
+    if (outcome2) return failedInstall(spec, outcome2);
+    throw error;
+  }
+  if (!removedPackage) return installed;
+  const outcome = await restoreIfMissing(manager, enabled, previous, installed);
+  return outcome ? { ...installed, error: { code: outcome } } : installed;
+}
+function failedInstall(spec, code) {
+  return { changed: false, application: "failed", stage: "install", target: spec, error: { code } };
+}
+async function packageInstalled(manager) {
+  try {
+    return (await manager.listBundles()).some((row) => row.name === PACKAGE && row.installed);
+  } catch {
+    return void 0;
+  }
+}
+async function restoreIfMissing(manager, enabled, previous, installed) {
+  if (installed && installed.application !== "failed" && installed.application !== "cancelled") return void 0;
+  if (installed && changeErrorCode(installed) === "already-installed") return void 0;
+  if (await packageInstalled(manager) !== false) return void 0;
+  if (!previous) return "restore-failed";
+  try {
+    const restored = await manager.installBundle(previous, { enabled, requestId: brandString(randomUUID()) });
+    if (restored.application === "failed" || restored.application === "cancelled") return "restore-failed";
+    return await packageInstalled(manager) === true ? "restored" : "restore-failed";
+  } catch {
+    return "restore-failed";
+  }
+}
 function errorCode(value) {
-  const values = ["management-required", "unaddressable", "unknown-plugin", "invalid-spec", "ambiguous-install", "not-bundle", "not-removable", "stop-profile", "bundle-in-use", "stale-approval", "incompatible-version", "operation-error"];
+  const values = ["management-required", "unaddressable", "unknown-plugin", "invalid-spec", "ambiguous-install", "not-bundle", "not-removable", "stop-profile", "bundle-in-use", "stale-approval", "incompatible-version", "operation-error", "already-installed", "restored", "restore-failed"];
   return values.find((code) => code === value) ?? "operation-error";
 }
 function packageManifest(bytes) {
@@ -2867,11 +2951,22 @@ var Updates = class {
         if (latest.source !== before.source || latest.enabled !== before.enabled) throw new Error("settings-changed");
         if (this.closed) throw new Error("cancelled");
         started = true;
-        const result = await this.manager.installBundle(spec, { enabled: before.enabled, requestId: brandString(operationId) });
+        const manager = this.manager;
+        const requestId = brandString(operationId);
+        let result = await manager.installBundle(spec, { enabled: before.enabled, requestId });
+        if (changeErrorCode(result) === "already-installed") {
+          const replaced = await replaceInstalled(manager, spec, before.enabled, before.source, requestId);
+          if (replaced) result = replaced;
+        }
         this.operation.result = result;
         await this.save();
-        const after = await this.bundle();
-        return this.result(result, after.version);
+        let installed;
+        try {
+          installed = this.closed ? (await manager.listBundles()).find((row) => row.name === PACKAGE)?.version : (await this.bundle()).version;
+        } catch (error) {
+          if (!(error instanceof Error) || error.message !== "not-installed") throw error;
+        }
+        return this.result(result, installed);
       } catch (error) {
         if (admitted && this.operation && this.operation.id === operationId && !this.operation.result && !started) {
           this.operation.result = { changed: false, application: "failed", target: PACKAGE, stage: "install", error: { code: "operation-error" } };
@@ -2889,7 +2984,7 @@ var Updates = class {
 };
 
 // src/version.ts
-var VERSION = "0.3.1";
+var VERSION = "0.3.2";
 
 // src/tools.ts
 import { defineTool } from "@deepseek-ai/dsh-tools";
@@ -3032,7 +3127,7 @@ ${value.content}${value.truncated ? "\n\n[Content truncated]" : ""}` }] },
         },
         timeoutMs: 6e4,
         isConcurrencySafe: () => true,
-        execute: (args, exec) => adapter.search({ query: args.query, maxResults: 8 }, exec.signal, capability),
+        execute: (args, exec) => searchWithFallback({ primary: provider, adapters, request: { query: args.query, maxResults: 8 }, signal: exec.signal, capability }),
         presentCall: (args) => presentSearchCall({ queries: [args.query] }),
         presentResult: (args, result) => presentSearchResult({ queries: [args.query] }, result)
       })));
@@ -3074,7 +3169,7 @@ function apply(ctx, config) {
       available: () => adapter.available(),
       async search(request, signal) {
         try {
-          return await adapter.search(request, signal);
+          return await searchWithFallback({ primary: provider.id, adapters, request, ...signal ? { signal } : {} });
         } catch (error) {
           if (signal?.aborted) throw new WebError("Search cancelled", "WEB_SEARCH_CANCELLED");
           if (error instanceof SearchError) throw new WebError(error.message, `SEARCH_${error.code.toUpperCase().replaceAll("-", "_")}`);

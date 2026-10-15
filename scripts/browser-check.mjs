@@ -43,6 +43,10 @@ try {
   await page.goto(base)
   await page.waitForFunction(() => !!window.testRuntime, { timeout: 5000 }).catch(() => { throw new Error(`Browser mount failed: ${errors.join('; ')}`) })
   await page.getByRole('heading', { name: '検索プロバイダー', exact: true }).waitFor()
+  await page.getByText('単独の無料プランはなく', { exact: false }).waitFor()
+  await page.getByRole('link', { name: 'Brave のプラン説明', exact: true }).waitFor()
+  await page.getByText('HTTP 429', { exact: false }).waitFor()
+  await page.screenshot({ path: 'artifacts/notes-ja-light.png', animations: 'disabled' })
   assert.equal(await page.locator('.dsh-search-provider').count(), 9)
   const updates = page.locator('.dsh-search-update'); assert.equal(await updates.count(), 1)
   await updates.getByText('この構成では自動更新できません。', { exact: false }).waitFor()
@@ -109,9 +113,10 @@ try {
   await page.waitForFunction(() => document.querySelector('[aria-label="このプロバイダーを使う: Exa"]')?.getAttribute('aria-checked') === 'false')
   assert.equal(await providerSwitch.isEnabled(), false)
   assert.equal(fixture.ctx.tools.get('search_papers'), undefined)
-  for (const [language, title] of [['en', 'Web search provider'], ['zh', '网页搜索提供商']]) {
+  for (const [language, title, note] of [['en', 'Web search provider', 'no standalone free plan'], ['zh', '网页搜索提供商', '没有单独的免费计划']]) {
     await page.evaluate(language => testRuntime.locale.setLocale(language), language)
     await page.getByRole('heading', { name: title, exact: true }).waitFor()
+    await page.getByText(note, { exact: false }).waitFor()
   }
   await page.evaluate(() => testRuntime.dispose()); assert.equal(await page.locator('style[data-dsh-search-providers]').count(), 0)
   assert.deepEqual(errors, [])

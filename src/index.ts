@@ -4,6 +4,7 @@ import type {} from '@deepseek-ai/dsh-web'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import { WebError } from '@deepseek-ai/dsh-web'
 import { SearchAdapter } from './adapters.ts'
+import { searchWithFallback } from './search-fallback.ts'
 import { SearchBroker } from './broker.ts'
 import { NS, PROVIDERS, SearchError, object, providerOf, providerRoute, validateSettings, type Settings, type ProviderId } from './catalog.ts'
 import { getDshRuntimeVersion } from '@deepseek-ai/dsh-app-boot'
@@ -44,7 +45,7 @@ export function apply(ctx: Context, config: LiveConfig): void {
     if (providerOf(provider.id).webSearch === false) continue
     ctx.web.registerSearchProvider({ id: providerRoute(provider.id), available: () => adapter.available(),
       async search(request, signal) {
-        try { return await adapter.search(request, signal) }
+        try { return await searchWithFallback({ primary: provider.id, adapters, request, ...signal ? { signal } : {} }) }
         catch (error) {
           if (signal?.aborted) throw new WebError('Search cancelled', 'WEB_SEARCH_CANCELLED')
           if (error instanceof SearchError) throw new WebError(error.message, `SEARCH_${error.code.toUpperCase().replaceAll('-', '_')}`)

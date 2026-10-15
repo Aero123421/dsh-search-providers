@@ -14,6 +14,7 @@ export interface Manager {
   listBundles(): Promise<BundleInfo[]>
   installBundle(spec: string, options: { enabled: boolean; requestId: PluginInstallRequestId }): Promise<ChangeResult>
   waitForInstall(requestId: PluginInstallRequestId): Promise<ChangeResult | null>
+  removeBundle?(name: string): Promise<ChangeResult>
 }
 export type UpdateStatus = 'idle' | 'available' | 'current' | 'unavailable' | 'incompatible' | 'checking' | 'installing' | 'unknown' | 'restart-required' | 'applied' | 'overridden' | 'failed' | 'cancelled'
 interface Candidate { id: string; version: string; tag: string; notes: string; url: string; runtime: string; filename: string; tarball: string; checksum: string }
@@ -33,9 +34,60 @@ function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('metadata')
   return value as Record<string, unknown>
 }
+function changeErrorCode(result: ChangeResult): string {
+  return String(result.error?.code ?? '')
+}
+// HMR's installBundle returns already-installed, without changing the profile, when the spec names an installed package.
+// The plugin manager page then calls removeBundle and installBundle from outside that package. removeBundle stops this
+// plugin before it resolves; the captured manager is the service that continues, so this stop is not a cancellation.
+// stop-profile leaves the package installed (no HMR), and installBundle follows, as that page does. Other removal
+// failures do not install. previous is the source saved before removal. If that removal dropped the package and the
+// new install fails or is cancelled, the previous source is installed again with a new request id. listBundles must
+// show the package as absent first; an unknown list does not install another copy.
+async function replaceInstalled(manager: Manager, spec: string, enabled: boolean, previous: string | undefined, requestId: PluginInstallRequestId): Promise<ChangeResult | undefined> {
+  if (typeof manager.removeBundle !== 'function') return undefined
+  let removed: ChangeResult
+  try { removed = await manager.removeBundle(PACKAGE) }
+  catch (error) {
+    const outcome = await restoreIfMissing(manager, enabled, previous, undefined)
+    if (outcome) return failedInstall(spec, outcome)
+    throw error
+  }
+  if (removed.application === 'cancelled' || (removed.application === 'failed' && changeErrorCode(removed) !== 'stop-profile')) return removed
+  const removedPackage = removed.application === 'applied' || removed.application === 'restart-required'
+  let installed: ChangeResult
+  try { installed = await manager.installBundle(spec, { enabled, requestId }) }
+  catch (error) {
+    if (!removedPackage) throw error
+    const outcome = await restoreIfMissing(manager, enabled, previous, undefined)
+    if (outcome) return failedInstall(spec, outcome)
+    throw error
+  }
+  if (!removedPackage) return installed
+  const outcome = await restoreIfMissing(manager, enabled, previous, installed)
+  return outcome ? { ...installed, error: { code: outcome as ManagementError['code'] } } : installed
+}
+function failedInstall(spec: string, code: 'restored' | 'restore-failed'): ChangeResult {
+  return { changed: false, application: 'failed', stage: 'install', target: spec, error: { code: code as ManagementError['code'] } }
+}
+async function packageInstalled(manager: Manager): Promise<boolean | undefined> {
+  try { return (await manager.listBundles()).some(row => row.name === PACKAGE && row.installed) }
+  catch { return undefined }
+}
+async function restoreIfMissing(manager: Manager, enabled: boolean, previous: string | undefined, installed: ChangeResult | undefined): Promise<'restored' | 'restore-failed' | undefined> {
+  if (installed && installed.application !== 'failed' && installed.application !== 'cancelled') return undefined
+  if (installed && changeErrorCode(installed) === 'already-installed') return undefined
+  if (await packageInstalled(manager) !== false) return undefined
+  if (!previous) return 'restore-failed'
+  try {
+    const restored = await manager.installBundle(previous, { enabled, requestId: brandString<PluginInstallRequestId>(randomUUID()) })
+    if (restored.application === 'failed' || restored.application === 'cancelled') return 'restore-failed'
+    return await packageInstalled(manager) === true ? 'restored' : 'restore-failed'
+  } catch { return 'restore-failed' }
+}
 function errorCode(value: unknown): ManagementError['code'] {
-  const values: ManagementError['code'][] = ['management-required', 'unaddressable', 'unknown-plugin', 'invalid-spec', 'ambiguous-install', 'not-bundle', 'not-removable', 'stop-profile', 'bundle-in-use', 'stale-approval', 'incompatible-version', 'operation-error']
-  return values.find(code => code === value) ?? 'operation-error'
+  const values = ['management-required', 'unaddressable', 'unknown-plugin', 'invalid-spec', 'ambiguous-install', 'not-bundle', 'not-removable', 'stop-profile', 'bundle-in-use', 'stale-approval', 'incompatible-version', 'operation-error', 'already-installed', 'restored', 'restore-failed'] as const
+  return (values.find(code => code === value) ?? 'operation-error') as ManagementError['code']
 }
 export function packageManifest(bytes: Buffer): Record<string, unknown> {
   const tar = gunzipSync(bytes, { maxOutputLength: 128 * 1024 * 1024 })
@@ -225,9 +277,25 @@ export class Updates {
         if (latest.source !== before.source || latest.enabled !== before.enabled) throw new Error('settings-changed')
         if (this.closed) throw new Error('cancelled')
         started = true
-        const result = await this.manager!.installBundle(spec, { enabled: before.enabled, requestId: brandString<PluginInstallRequestId>(operationId) })
+        const manager = this.manager!
+        const requestId = brandString<PluginInstallRequestId>(operationId)
+        let result = await manager.installBundle(spec, { enabled: before.enabled, requestId })
+        if (changeErrorCode(result) === 'already-installed') {
+          const replaced = await replaceInstalled(manager, spec, before.enabled, before.source, requestId)
+          if (replaced) result = replaced
+        }
         this.operation.result = result; await this.save()
-        const after = await this.bundle(); return this.result(result, after.version)
+        // Disposal during removeBundle makes this.bundle() report cancellation. The manager service can still list.
+        // A failed restore leaves the package absent; that absence is the saved result, not a lost operation.
+        let installed: string | undefined
+        try {
+          installed = this.closed
+            ? (await manager.listBundles()).find(row => row.name === PACKAGE)?.version
+            : (await this.bundle()).version
+        } catch (error) {
+          if (!(error instanceof Error) || error.message !== 'not-installed') throw error
+        }
+        return this.result(result, installed)
       } catch (error) {
         if (admitted && this.operation && this.operation.id === operationId && !this.operation.result && !started) {
           this.operation.result = { changed: false, application: 'failed', target: PACKAGE, stage: 'install', error: { code: 'operation-error' } }

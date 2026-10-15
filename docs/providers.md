@@ -19,7 +19,13 @@ Nimbleのコード検索は公開Webのコード例や文書を探す機能で�
 
 ページ本文取得は、各社のAPIを使ってテキストを取り出します。API自身のHTTP 200を対象ページのHTTP 200として扱いません。Nimbleは対象statusを確認し、他社は本文の取得成否を応答内容から判定します。[Nimble Extract](https://docs.nimbleway.com/api-reference/extract/extract)、[TinyFish Fetch](https://docs.tinyfish.ai/fetch-api/reference)、[Parallel Extract](https://docs.parallel.ai/api-reference/extract/extract)、[Exa Contents](https://exa.ai/docs/reference/get-contents)、[Keenable Fetch](https://docs.keenable.ai/api-reference/fetch)。
 
-無料枠や料金は画面に固定表示しません。Braveで永続的な会話履歴に検索結果を保存する場合は、保存権を付与する契約か確認してください。[Braveの保存権の説明](https://brave.com/search/api/#faq)。
+料金は画面に金額の表としては固定しません。各社の料金は変わるため、契約前に公式ページを確認してください。確認日は 2026-10-15 です。
+
+Brave Search API の公式 FAQ は、単独の無料プランはないと説明しています。各プランに毎月 $5 のクレジットがあり、Search では約 1,000 クエリです。プランの加入にはカードが必要です。既存の後払いプランは、請求と利用が変わらないと案内されています。プリペイド残高が $0 になるとサービスが止まり、追加のリクエストは拒否されます。拒否時の HTTP ステータスは、Web 検索リファレンス（200、404、422、429）には書かれていません。レート制限の説明では、秒あたりの上限と月間クォータの超過は HTTP 429 です。[プランの説明](https://api-dashboard.search.brave.com/documentation/resources/help-feedback) · [2026-02-12 の料金改定](https://brave.com/blog/most-powerful-search-api-for-ai/) · [レート制限](https://api-dashboard.search.brave.com/documentation/guides/rate-limiting)
+
+このプラグインが他社へ切り替えるのは HTTP 429 だけです。残高 $0 の拒否が 429 以外で返った場合は切り替えません。
+
+Braveで永続的な会話履歴に検索結果を保存する場合は、保存権を付与する契約か確認してください。[Braveの保存権の説明](https://brave.com/search/api/#faq)。
 
 ## FxTwitter
 
