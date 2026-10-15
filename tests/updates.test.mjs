@@ -332,6 +332,126 @@ test('Different or missing expected profile identity cannot admit an installatio
   await assert.rejects(updates.install(checked.candidate.id, randomUUID(), undefined), /profile-changed/)
   assert.equal(calls.length, 0)
 })
+const previousSource = `github:${REPOSITORY}#v0.3.0`
+test('A failed install after removal installs the previous source again', async t => {
+  const seen = []
+  let installs = 0
+  const { updates, bundle, dir, manager } = await fixture(t, { bundle: { enabled: true }, manager: {
+    installBundle: async (spec, config) => {
+      installs++; seen.push({ spec, config })
+      if (installs === 1) return { changed: false, application: 'failed', stage: 'install', target: spec, error: { code: 'already-installed' } }
+      if (installs === 2) { bundle.installed = false; return { changed: false, application: 'failed', stage: 'install', target: spec, error: { code: 'operation-error' } } }
+      bundle.installed = true; bundle.version = '0.3.0'; bundle.source = spec
+      return { changed: true, application: 'applied', stage: 'install', target: spec, version: '0.3.0', bundle: PACKAGE }
+    },
+    removeBundle: async () => { bundle.installed = false; return { changed: true, application: 'applied', stage: 'remove', target: PACKAGE } },
+  } })
+  const checked = await updates.check(), id = randomUUID()
+  const result = await updates.install(checked.candidate.id, id, updates.profileKey)
+  assert.equal(result.status, 'failed'); assert.equal(result.reason, 'restored'); assert.equal(installs, 3)
+  assert.equal(seen[2].spec, previousSource); assert.equal(seen[2].config.enabled, true)
+  assert.equal(seen[1].config.requestId, id); assert.notEqual(seen[2].config.requestId, id)
+  assert.match(seen[2].config.requestId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+  const reloaded = new Updates(() => manager, dir, '0.3.0', runtime, fetcher())
+  const again = await reloaded.status()
+  assert.equal(again.status, 'failed'); assert.equal(again.reason, 'restored'); assert.equal(again.operation, id)
+})
+test('A failed restore says the package is still missing', async t => {
+  let installs = 0
+  const { updates, bundle } = await fixture(t, { manager: {
+    installBundle: async (spec) => {
+      installs++
+      if (installs === 1) return { changed: false, application: 'failed', stage: 'install', target: spec, error: { code: 'already-installed' } }
+      bundle.installed = false
+      return { changed: false, application: 'failed', stage: 'install', target: spec, error: { code: 'operation-error' } }
+    },
+    removeBundle: async () => { bundle.installed = false; return { changed: true, application: 'applied', stage: 'remove', target: PACKAGE } },
+  } })
+  const checked = await updates.check()
+  const result = await updates.install(checked.candidate.id, randomUUID(), updates.profileKey)
+  assert.equal(result.status, 'failed'); assert.equal(result.reason, 'restore-failed'); assert.equal(installs, 3)
+  assert.equal(bundle.installed, false)
+  bundle.installed = true; bundle.version = '0.3.0'
+  const again = await updates.status()
+  assert.equal(again.status, 'failed'); assert.equal(again.reason, 'restore-failed')
+})
+test('Removal that throws after the package is gone still restores it', async t => {
+  const seen = []
+  const { updates, bundle } = await fixture(t, { manager: {
+    installBundle: async (spec, config) => {
+      seen.push({ spec, config })
+      if (seen.length === 1) return { changed: false, application: 'failed', stage: 'install', target: spec, error: { code: 'already-installed' } }
+      bundle.installed = true; bundle.source = spec
+      return { changed: true, application: 'applied', stage: 'install', target: spec, version: '0.3.0', bundle: PACKAGE }
+    },
+    removeBundle: async () => { bundle.installed = false; throw new Error('remove-lost') },
+  } })
+  const checked = await updates.check()
+  const result = await updates.install(checked.candidate.id, randomUUID(), updates.profileKey)
+  assert.equal(result.status, 'failed'); assert.equal(result.reason, 'restored'); assert.equal(seen.length, 2)
+  assert.equal(seen[1].spec, previousSource); assert.equal(bundle.installed, true)
+})
+test('A removal throw that leaves the package installed does not install another copy', async t => {
+  let installs = 0
+  const { updates } = await fixture(t, { manager: {
+    installBundle: async (spec) => { installs++; return { changed: false, application: 'failed', stage: 'install', target: spec, error: { code: 'already-installed' } } },
+    removeBundle: async () => { throw new Error('remove-lost') },
+  } })
+  const checked = await updates.check()
+  const result = await updates.install(checked.candidate.id, randomUUID(), updates.profileKey)
+  assert.equal(result.status, 'unknown'); assert.equal(installs, 1)
+})
+test('An install failure while the package is still listed does not restore', async t => {
+  let installs = 0
+  const { updates, bundle } = await fixture(t, { manager: {
+    installBundle: async (spec) => {
+      installs++
+      if (installs === 1) return { changed: false, application: 'failed', stage: 'install', target: spec, error: { code: 'already-installed' } }
+      return { changed: false, application: 'failed', stage: 'install', target: spec, error: { code: 'operation-error' } }
+    },
+    removeBundle: async () => ({ changed: true, application: 'applied', stage: 'remove', target: PACKAGE }),
+  } })
+  const checked = await updates.check()
+  const result = await updates.install(checked.candidate.id, randomUUID(), updates.profileKey)
+  assert.equal(result.status, 'failed'); assert.equal(result.reason, 'operation-error'); assert.equal(installs, 2); assert.equal(bundle.installed, true)
+})
+test('stop-profile install failure does not restore over the package that remained', async t => {
+  let installs = 0
+  const { updates } = await fixture(t, { manager: {
+    installBundle: async (spec) => {
+      installs++
+      if (installs === 1) return { changed: false, application: 'failed', stage: 'install', target: spec, error: { code: 'already-installed' } }
+      throw new Error('install-lost')
+    },
+    removeBundle: async () => ({ changed: false, application: 'failed', stage: 'remove', target: PACKAGE, error: { code: 'stop-profile' } }),
+  } })
+  const checked = await updates.check()
+  const result = await updates.install(checked.candidate.id, randomUUID(), updates.profileKey)
+  assert.equal(result.status, 'unknown'); assert.equal(installs, 2)
+})
+test('A cancelled install after removal restores the previous source', async t => {
+  const seen = []
+  const { updates, bundle } = await fixture(t, { manager: {
+    installBundle: async (spec, config) => {
+      seen.push({ spec, config })
+      if (seen.length === 1) return { changed: false, application: 'failed', stage: 'install', target: spec, error: { code: 'already-installed' } }
+      if (seen.length === 2) { bundle.installed = false; return { changed: false, application: 'cancelled', stage: 'install', target: spec } }
+      bundle.installed = true
+      return { changed: true, application: 'applied', stage: 'install', target: spec, version: '0.3.0', bundle: PACKAGE }
+    },
+    removeBundle: async () => { bundle.installed = false; return { changed: true, application: 'applied', stage: 'remove', target: PACKAGE } },
+  } })
+  const checked = await updates.check()
+  const result = await updates.install(checked.candidate.id, randomUUID(), updates.profileKey)
+  assert.equal(result.status, 'cancelled'); assert.equal(result.reason, 'restored'); assert.equal(seen[2].spec, previousSource)
+})
+test('An ordinary install does not remove the bundle when removeBundle exists', async t => {
+  let removed = 0
+  const { updates } = await fixture(t, { manager: { removeBundle: async () => { removed++; throw new Error('remove') } } })
+  const checked = await updates.check()
+  assert.equal((await updates.install(checked.candidate.id, randomUUID(), updates.profileKey)).status, 'restart-required')
+  assert.equal(removed, 0)
+})
 test('Authoritative cancellation preserves its outcome after the installer abort exit', async t => {
   const { updates } = await fixture(t, { result: { application: 'cancelled', packageResult: { exitCode: 130, timedOut: false } } })
   const checked = await updates.check()

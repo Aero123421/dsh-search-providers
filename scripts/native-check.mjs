@@ -10,6 +10,20 @@ const root = requestedSource.startsWith('github:') ? requestedSource : resolve(r
 const temp = await mkdtemp(join(tmpdir(), 'dsh-search-native-')), env = { ...process.env, DSH_HOME: join(temp, 'home') }
 let server, browser, output = ''
 const cleaned = value => value.replace(/https?:\/\/[^\s]*[?&]token=[^\s]*/g, '[authenticated URL]')
+// 0.2.1-alpha.2 puts Settings on the sidebar. 0.2.1-alpha.3 replaces that
+// trigger with the signed-out account menu (visible label More, accessible
+// name Account menu) and keeps Settings as a menu item.
+async function openSettings(page) {
+  const opener = page.getByRole('button', { name: /^(Settings|设置|Account menu|账号菜单)$/ })
+  await opener.first().waitFor()
+  const name = (await opener.first().getAttribute('aria-label')) ?? ''
+  if (/^(Account menu|账号菜单)$/.test(name)) {
+    await opener.first().click()
+    await page.getByRole('menuitem', { name: /^(Settings|设置)$/ }).click()
+    return
+  }
+  await opener.first().click()
+}
 async function command(args) {
   const child = spawn('dsh', args, { cwd: temp, env, stdio: ['ignore', 'pipe', 'pipe'] })
   let captured = ''; child.stdout.on('data', chunk => { captured += chunk }); child.stderr.on('data', chunk => { captured += chunk })
@@ -64,9 +78,7 @@ try {
   assert.equal(snapshot.entries.find(row => row.id === 'exa').configured, true)
   await api('default', { provider: 'native', revision: snapshot.revision, searchRevision: snapshot.searchRevision }); snapshot = await api('list')
   assert.equal(snapshot.searchProvider, 'deepseek-official')
-  const settings = page.getByRole('button', { name: /^(Settings|设置)$/ })
-  await settings.waitFor()
-  await settings.click()
+  await openSettings(page)
   await page.getByRole('button', { name: 'Web search provider', exact: true }).click()
   await page.getByRole('heading', { name: 'Web search provider', exact: true }).waitFor()
   await page.locator('.dsh-search-provider').first().waitFor()
@@ -96,13 +108,13 @@ try {
   })
   // Reload creates a new Client and must reconcile using update-status.
   await page.reload()
-  await page.getByRole('button', { name: /^(Settings|设置)$/ }).click()
+  await openSettings(page)
   await page.getByRole('button', { name: 'Web search provider', exact: true }).click()
   await row.getByRole('button', { name: 'Update', exact: true }).click()
   await row.getByText('Restart DSH to use the installed version.', { exact: true }).waitFor()
   assert.equal(starts, 1)
   await page.reload()
-  await page.getByRole('button', { name: /^(Settings|设置)$/ }).click()
+  await openSettings(page)
   await page.getByRole('button', { name: 'Web search provider', exact: true }).click()
   await row.getByText('Restart DSH to use the installed version.', { exact: true }).waitFor()
   assert.equal(starts, 1)

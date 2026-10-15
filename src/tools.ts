@@ -3,6 +3,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { formatSearchOutput, searchMetaFromValue, presentSearchCall, presentSearchResult } from '@deepseek-ai/dsh-tool-web'
 import { SearchError, type Capability, type ProviderId, type Settings, type SearchResult } from './catalog.ts'
 import type { SearchAdapter } from './adapters.ts'
+import { searchWithFallback } from './search-fallback.ts'
 
 export const TOOL_NAMES: Record<Capability, string> = {
   news: 'search_news', papers: 'search_papers', code: 'search_code', people: 'search_people', companies: 'search_companies',
@@ -88,7 +89,7 @@ export function registerExtraTools(ctx: Context, settings: Settings, adapters: M
           presentationMeta: (_args, value) => searchMetaFromValue(value),
         },
         timeoutMs: 60_000, isConcurrencySafe: () => true,
-        execute: (args, exec) => adapter.search({ query: args.query, maxResults: 8 }, exec.signal, capability),
+        execute: (args, exec) => searchWithFallback({ primary: provider, adapters, request: { query: args.query, maxResults: 8 }, signal: exec.signal, capability }),
         presentCall: args => presentSearchCall({ queries: [args.query] }), presentResult: (args, result) => presentSearchResult({ queries: [args.query] }, result),
       })))
     }
