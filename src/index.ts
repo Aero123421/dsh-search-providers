@@ -11,12 +11,13 @@ import { getDshRuntimeVersion } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-plugin-manager'
 import { Updates } from './updates.ts'
 import { VERSION } from './version.ts'
+import { withMetadataSnippets } from './metadata-presentation.ts'
 import { registerExtraTools } from './tools.ts'
 
 export const name = NS
 export const inject = ['web', 'tools', 'settings', 'credentials', 'configEditor', 'connection']
 export const Config = z.object({
-  providers: z.dict(z.object({ enabled: z.boolean().default(false) })).default({}).volatile(),
+  providers: z.dict(z.object({ enabled: z.boolean().default(false), search: z.any() })).default({}).volatile(),
   tools: z.dict(z.object({ provider: z.string().required(), enabled: z.boolean().default(false) })).default({}).volatile(),
   nativeSearchProvider: z.string().default('deepseek-official').volatile(),
 })
@@ -40,12 +41,12 @@ export function apply(ctx: Context, config: LiveConfig): void {
   const broker = new SearchBroker(ctx), adapters = new Map<ProviderId, SearchAdapter>()
   ctx.effect(() => () => { for (const adapter of adapters.values()) adapter.dispose() })
   for (const provider of PROVIDERS) {
-    const adapter = new SearchAdapter({ id: provider.id, enabled: () => settings().providers[provider.id]?.enabled === true, resolveKey: () => broker.key(provider.id) })
+    const adapter = new SearchAdapter({ id: provider.id, enabled: () => settings().providers[provider.id]?.enabled === true, resolveKey: () => broker.key(provider.id), searchOptions: () => settings().providers[provider.id]?.search ?? {} })
     adapters.set(provider.id, adapter)
     if (providerOf(provider.id).webSearch === false) continue
     ctx.web.registerSearchProvider({ id: providerRoute(provider.id), available: () => adapter.available(),
       async search(request, signal) {
-        try { return await searchWithFallback({ primary: provider.id, adapters, request, ...signal ? { signal } : {} }) }
+        try { return withMetadataSnippets(await searchWithFallback({ primary: provider.id, adapters, request, ...signal ? { signal } : {} })) }
         catch (error) {
           if (signal?.aborted) throw new WebError('Search cancelled', 'WEB_SEARCH_CANCELLED')
           if (error instanceof SearchError) throw new WebError(error.message, `SEARCH_${error.code.toUpperCase().replaceAll('-', '_')}`)
@@ -63,7 +64,7 @@ export function apply(ctx: Context, config: LiveConfig): void {
   ctx.on('settings/document-updated', namespace => { if (namespace === NS) refreshTools() })
   ctx.on('loader/volatile-update', refreshTools)
   ctx.effect(() => () => { for (const dispose of registrations.values()) dispose(); registrations.clear() })
-  for (const method of ['list', 'save-key', 'delete-key', 'provider', 'tool', 'default', 'update-status', 'update-check', 'update-install']) {
+  for (const method of ['list', 'save-key', 'delete-key', 'provider', 'search-options', 'tool', 'default', 'update-status', 'update-check', 'update-install']) {
     const endpoint = `${NS}/${method}`
     ctx.connection.fetch.register({ path: `/api/${endpoint}`, methods: ['POST'], requestBody: 'buffered',
       async fetch(request) {

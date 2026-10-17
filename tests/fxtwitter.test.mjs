@@ -16,7 +16,9 @@ test('FxTwitter search is keyless and preserves source text and available metada
     return Response.json({ code: 200, results: [post], cursor: { bottom: 'next-page' } })
   })
   const result = await fx.xSearch({ query: '日本語 from:fixture', sort: 'top', maxResults: 2 })
-  assert.deepEqual(result, { sources: [{ url: 'https://x.com/fixture/status/20', snippet: post.text, title: 'Fixture author (@fixture)', author: 'Fixture author', authorHandle: 'fixture', publishedAt: '2006-03-21T20:50:14.000Z', likes: 0, reposts: 2, replies: 3 }], truncated: true })
+  assert.match(result.nextPage, /^fxtwitter:[a-f0-9-]{36}$/)
+  const { nextPage, ...page } = result
+  assert.deepEqual(page, { page: 0, duplicatesRemoved: 0, pagination: 'more-results-not-guaranteed', sources: [{ url: 'https://x.com/fixture/status/20', snippet: post.text, title: 'Fixture author (@fixture)', author: 'Fixture author', authorHandle: 'fixture', publishedAt: '2006-03-21T20:50:14.000Z', likes: 0, reposts: 2, replies: 3 }], truncated: true })
 })
 test('A supplied X post URL selects direct post retrieval', async () => {
   const fx = adapter(async url => {
@@ -37,7 +39,7 @@ for (const http of [200, 404]) test(`FxTwitter HTTP ${http} with code 404 never 
 })
 test('A successful empty search is accepted when the API explicitly reports success', async () => {
   const fx = adapter(async () => Response.json({ code: 200, results: [], cursor: { bottom: null } }))
-  assert.deepEqual(await fx.xSearch({ query: 'example' }), { sources: [], truncated: false })
+  assert.deepEqual(await fx.xSearch({ query: 'example' }), { sources: [], truncated: false, page: 0, duplicatesRemoved: 0, pagination: 'end' })
 })
 test('Unavailable, mismatched and malformed posts are not presented as retrieved posts', async () => {
   for (const [status, code] of [[null, 'x-post-unavailable'], [{ type: 'tombstone', id: '20' }, 'x-post-unavailable'], [{ ...post, id: '21' }, 'invalid-response'], [{ ...post, text: null }, 'invalid-response']]) {

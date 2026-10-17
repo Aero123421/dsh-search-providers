@@ -6,6 +6,7 @@ import { SearchController, type Connection } from './controller.ts'
 import { providerRoute, type ProviderId } from './catalog.ts'
 import type { ProviderView, Snapshot } from './broker.ts'
 import { en, ja, zh, type CopyKey } from './locales.ts'
+import { MODES, OPTION_FIELDS, validateSearchOptions, type OptionKey, type SearchOptions } from './search-options.ts'
 import css from './styles.css'
 import controlsCss from '../.cache/native-controls.css'
 
@@ -83,6 +84,75 @@ function FeaturesDialog({ entry, snapshot, controller, t, onClose }: { entry: Pr
     </div>
   </Modal>
 }
+const listFields: readonly OptionKey[] = ['includeDomains', 'excludeDomains', 'goggles']
+const numericFields: readonly OptionKey[] = ['recencyMinutes', 'yearMin', 'yearMax']
+const dateFields: readonly OptionKey[] = ['publishedAfter', 'publishedBefore', 'updatedAfter', 'updatedBefore', 'acquiredAfter', 'acquiredBefore', 'queryTime']
+function optionDraft(options: SearchOptions = {}): Partial<Record<OptionKey, string>> {
+  return Object.fromEntries(Object.entries(options).map(([key, value]) => [key, Array.isArray(value) ? value.join('\n') : String(value)]))
+}
+function SearchOptionsDialog({ entry, snapshot, controller, t, onClose }: { entry: ProviderView; snapshot: Snapshot; controller: SearchController; t: Translate; onClose(): void }) {
+  const [draft, setDraft] = useState(() => optionDraft(entry.search)), [revision, setRevision] = useState(snapshot.revision)
+  const [busy, setBusy] = useState(false), [error, setError] = useState<CopyKey>(), [refreshFailed, setRefreshFailed] = useState(false)
+  const id = useId(), fields = OPTION_FIELDS[entry.id]
+  async function refreshRevision() {
+    await controller.refresh()
+    const current = controller.getSnapshot()
+    setRefreshFailed(!!current.error || !current.snapshot)
+    if (current.snapshot && !current.error) setRevision(current.snapshot.revision)
+  }
+  async function save(reset = false) {
+    if (busy || refreshFailed) return
+    let options: SearchOptions
+    try {
+      const raw = Object.fromEntries(fields.flatMap(field => {
+        const value = draft[field]?.trim()
+        if (!value) return []
+        return [[field, listFields.includes(field) ? value.split(/[,\n]/).map(item => item.trim()).filter(Boolean) : numericFields.includes(field) ? Number(value) : value]]
+      }))
+      options = validateSearchOptions(entry.id, reset ? {} : raw)
+    } catch { setError('invalidOptions'); return }
+    setBusy(true); setError(undefined)
+    try { await controller.call('search-options', { provider: entry.id, options, revision }); await controller.refresh(); onClose() }
+    catch (failure) {
+      const key = errorKey(failure)
+      setError(failure instanceof Error && failure.message.endsWith('/invalid-request') ? 'invalidOptions' : key === 'saveFailed' ? 'optionsSaveFailed' : key)
+      await refreshRevision()
+    } finally { setBusy(false) }
+  }
+  function hint(field: OptionKey): CopyKey {
+    if (field === 'language') return entry.id === 'brave' ? 'optionBraveLanguageHint' : 'optionLanguageHint'
+    if (dateFields.includes(field)) return 'optionDateHint'
+    if (field === 'includeDomains' || field === 'excludeDomains') return entry.id === 'keenable' ? 'optionSingleDomainHint' : 'optionDomainsHint'
+    if (field === 'yearMin' || field === 'yearMax') return 'optionYearHint'
+    return `optionHint_${field}` as CopyKey
+  }
+  return <Modal open title={`${entry.label} · ${t('searchSettings')}`} closeLabel={t('close')} onClose={() => { if (!busy) onClose() }} className="dsh-search-dialog dsh-search-options-dialog" contentClassName="dsh-search-dialog-content">
+    <form className="dsh-search-options-form" noValidate aria-busy={busy} onSubmit={event => { event.preventDefault(); void save() }}>
+      <p className="dsh-search-muted">{t('optionsDefaultNote')}</p>
+      <p className="dsh-search-muted">{t('optionsBillingNote')}</p>
+      {fields.map((field, index) => {
+        const fieldId = `${id}-${field}`, choices = field === 'mode' ? MODES[entry.id] : field === 'recency' ? ['hour', 'day', 'week', 'month', 'year'] : field === 'safeSearch' ? ['off', 'moderate', 'strict'] : undefined
+        const props = { id: fieldId, value: draft[field] ?? '', disabled: busy, 'aria-describedby': `${fieldId}-hint`, 'data-modal-autofocus': index === 0 ? true : undefined, onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setDraft(current => ({ ...current, [field]: event.target.value })) }
+        return <div className="dsh-search-option" key={field}>
+          <label htmlFor={fieldId}>{t(`option_${field}`)}</label>
+          {choices ? <select {...props} className="dsh-search-select"><option value="">{t('optionUnspecified')}</option>{choices.map(value => <option key={value} value={value}>{field === 'mode' ? value : t(`optionValue_${value}` as CopyKey)}</option>)}</select>
+            : listFields.includes(field) || field === 'purpose' ? <textarea {...props} className="dsh-search-textarea" rows={field === 'purpose' ? 2 : 3} />
+              : <Input {...props} type={numericFields.includes(field) ? 'number' : 'text'} min={field === 'recencyMinutes' ? 1 : 0} max={field === 'recencyMinutes' ? 5256000 : 9999} step={numericFields.includes(field) ? 1 : undefined} placeholder={dateFields.includes(field) ? 'YYYY-MM-DD' : field === 'country' ? 'JP' : field === 'language' ? entry.id === 'brave' ? 'jp' : 'ja' : field === 'uiLanguage' ? 'ja-JP' : undefined} />}
+          <p id={`${fieldId}-hint`} className="dsh-search-muted">{t(hint(field))}</p>
+        </div>
+      })}
+      {error && <p role="alert" className="dsh-search-error">{t(error)}</p>}
+      {error === 'conflict' && <p className="dsh-search-muted">{t('optionsConflictNote')}</p>}
+      {refreshFailed && <p role="alert" className="dsh-search-error">{t('optionsRefreshFailed')} <Button type="button" size="sm" disabled={busy} onClick={() => { setBusy(true); void refreshRevision().finally(() => setBusy(false)) }}>{t('retry')}</Button></p>}
+      {busy && <p role="status" className="dsh-search-muted">{t('saving')}</p>}
+      <div className="dsh-search-actions">
+        <Button type="submit" variant="primary" disabled={busy || refreshFailed}>{t('save')}</Button>
+        <Button type="button" variant="outline" disabled={busy || refreshFailed} onClick={() => { void save(true) }}>{t('resetSearchOptions')}</Button>
+        <Button type="button" variant="outline" disabled={busy} onClick={onClose}>{t('cancel')}</Button>
+      </div>
+    </form>
+  </Modal>
+}
 function UpdateRow({ controller, t }: { controller: UpdateController; t: Translate }) {
   const view = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
   useEffect(() => { void controller.status() }, [controller])
@@ -102,7 +172,7 @@ function UpdateRow({ controller, t }: { controller: UpdateController; t: Transla
 }
 export function SearchSettings({ controller, locale, updates }: PageProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), t = useCopy(locale)
-  const [dialog, setDialog] = useState<{ kind: 'key' | 'features'; provider: ProviderId }>(), [busy, setBusy] = useState(false), [error, setError] = useState<CopyKey>()
+  const [dialog, setDialog] = useState<{ kind: 'key' | 'features' | 'search'; provider: ProviderId }>(), [busy, setBusy] = useState(false), [error, setError] = useState<CopyKey>()
   useEffect(() => { void controller.load() }, [controller])
   const snapshot = state.snapshot, entry = snapshot?.entries.find(row => row.id === dialog?.provider)
   async function save(method: string, payload: object) {
@@ -134,11 +204,13 @@ export function SearchSettings({ controller, locale, updates }: PageProps) {
           {row.supportsKeys && <Button variant="outline" size="sm" disabled={busy || !row.writable} onClick={() => setDialog({ kind: 'key', provider: row.id })}>{t(row.configured ? 'editKey' : 'saveKey')}</Button>}
           {row.webSearch && snapshot.searchProvider !== providerRoute(row.id) && <Button variant="outline" size="sm" disabled={busy || !row.enabled} onClick={() => { void save('default', { provider: row.id }) }}>{t('setDefault')}</Button>}
           <Button variant="outline" size="sm" disabled={busy} onClick={() => setDialog({ kind: 'features', provider: row.id })}>{t('selectTools')}</Button>
+          {OPTION_FIELDS[row.id].length > 0 && <Button variant="outline" size="sm" disabled={busy} onClick={() => setDialog({ kind: 'search', provider: row.id })}>{t('searchSettings')}</Button>}
         </div>
       </article>)}
     </div>}
     {dialog?.kind === 'key' && entry && <KeyDialog entry={entry} controller={controller} t={t} onClose={() => setDialog(undefined)} />}
     {dialog?.kind === 'features' && entry && snapshot && <FeaturesDialog entry={entry} snapshot={snapshot} controller={controller} t={t} onClose={() => setDialog(undefined)} />}
+    {dialog?.kind === 'search' && entry && snapshot && <SearchOptionsDialog key={entry.id} entry={entry} snapshot={snapshot} controller={controller} t={t} onClose={() => setDialog(undefined)} />}
   </section>
 }
 export function apply(ctx: ClientContext): void {
