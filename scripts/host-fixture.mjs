@@ -29,6 +29,15 @@ export async function hostFixture({ authenticate = () => true, manager, profileD
   await ctx.plugin(MemoryCredentials)
   ctx.provide('settings', {
     configure: () => () => {}, describe: () => [{ ns: NS, value: structuredClone(value), revision }],
+    mutate: async (namespace, ops, expected) => {
+      if (namespace !== NS || expected !== revision) throw new Error('stale revision')
+      for (const op of ops) {
+        let target = value
+        for (const key of op.path.slice(0, -1)) target = target[key] ??= {}
+        target[op.path.at(-1)] = structuredClone(op.value)
+      }
+      revision++; ctx.emit('settings/document-updated', NS, revision)
+    },
     update: async (namespace, patch, expected) => {
       if (namespace !== NS || expected !== revision) throw new Error('stale revision')
       for (const field of ['providers', 'tools']) if (patch[field]) for (const [id, fields] of Object.entries(patch[field])) value[field][id] = { ...value[field][id], ...fields }

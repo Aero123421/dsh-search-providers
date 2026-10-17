@@ -5,6 +5,7 @@ import type {} from '@deepseek-ai/dsh-config-editor'
 import { credentialKey, credentialRef } from '@deepseek-ai/dsh-credentials'
 import { createHash } from 'node:crypto'
 import { NS, PROVIDERS, SearchError, object, providerOf, capabilityOf, providerRoute, type Settings, type ProviderId } from './catalog.ts'
+import { validateSearchOptions } from './search-options.ts'
 import type { Snapshot } from './state.ts'
 
 type Services = Pick<Context, 'credentials' | 'settings' | 'configEditor'>
@@ -48,7 +49,8 @@ export class SearchBroker {
       entries: await Promise.all(PROVIDERS.map(async row => {
         const provider = providerOf(row.id)
         return { ...provider, keyOptional: !!provider.keyOptional, supportsKeys: !!provider.env, webSearch: provider.webSearch !== false,
-          enabled: Object.hasOwn(providers, row.id) && object(providers[row.id]).enabled === true, ...await this.credential(row.id) }
+          enabled: Object.hasOwn(providers, row.id) && object(providers[row.id]).enabled === true,
+          search: validateSearchOptions(row.id, Object.hasOwn(providers, row.id) ? object(providers[row.id]).search ?? {} : {}), ...await this.credential(row.id) }
       })),
     }
   }
@@ -78,6 +80,11 @@ export class SearchBroker {
       if (!id || typeof data.enabled !== 'boolean') throw new SearchError('invalid-request', 'Invalid provider state')
       if (data.enabled && !providerOf(id).keyOptional && !(await this.credential(id)).configured) throw new SearchError('missing-key', 'Save an API key first')
       await this.ctx.settings.update(NS, { providers: { [id]: { enabled: data.enabled } } }, revision)
+    } else if (method === 'search-options') {
+      if (!id || providerOf(id).webSearch === false) throw new SearchError('invalid-request', 'This provider does not support search settings')
+      const search = validateSearchOptions(id, data.options)
+      // Set replaces this subtree atomically; update() would retain removed filters.
+      await this.ctx.settings.mutate(NS, [{ op: 'set', path: ['providers', id, 'search'], value: search }], revision)
     } else if (method === 'tool') {
       const capability = capabilityOf(data.capability)
       if (!id || typeof data.enabled !== 'boolean' || !providerOf(id).capabilities.includes(capability)) throw new SearchError('invalid-request', 'Unsupported capability')
@@ -96,8 +103,8 @@ export class SearchBroker {
         await this.ctx.settings.update(NS, { nativeSearchProvider: native }, revision)
       }
       const selection = id ? providerRoute(id) : native
-      // searchProvider is ordinary Config. ConfigEditor persists it and lets Loader
-      // reconcile the web service; the Settings API only edits volatile fields.
+      // Edit the owning web configuration while preserving fetchProvider and unrelated fields.
+      // ConfigEditor works with both ordinary alpha.2 fields and rc.2 volatile fields.
       await this.ctx.configEditor.edit(entry, current => {
         if (fingerprint(current) !== snapshot.searchRevision) throw new SearchError('settings-changed', 'The web configuration changed')
         const providers = object(object(this.section().value).providers ?? {})

@@ -1,6 +1,6 @@
 {
   "name": "@aero123421/dsh-search-providers",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "DeepSeek Harnessの検索プロバイダーと追加検索ツール",
   "type": "module",
   "license": "MIT",
@@ -91,7 +91,8 @@
     "test:compat": "node scripts/compat-check.mjs",
     "test:peers": "node scripts/peer-range-check.mjs",
     "test:browser": "node scripts/browser-check.mjs",
-    "test:native": "node scripts/native-check.mjs"
+    "test:native": "node scripts/native-check.mjs",
+    "test:upgrade": "node scripts/upgrade-check.mjs"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.5-alpha.1",

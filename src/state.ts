@@ -1,5 +1,6 @@
 import { PROVIDERS, SearchError, object, providerOf, capabilityOf, type Settings, type ProviderId, type Capability } from './catalog.ts'
-export interface ProviderView { id: ProviderId; label: string; capabilities: readonly Capability[]; enabled: boolean; configured: boolean; writable: boolean; keyOptional: boolean; supportsKeys: boolean; webSearch: boolean; source?: string }
+import { validateSearchOptions, type SearchOptions } from './search-options.ts'
+export interface ProviderView { search?: SearchOptions; id: ProviderId; label: string; capabilities: readonly Capability[]; enabled: boolean; configured: boolean; writable: boolean; keyOptional: boolean; supportsKeys: boolean; webSearch: boolean; source?: string }
 export interface Snapshot { entries: ProviderView[]; revision: number; searchProvider: string; searchRevision: string; nativeSearchProvider: string; tools: Settings['tools'] }
 function string(value: unknown): string {
   if (typeof value !== 'string' || value.length > 300) throw new SearchError('invalid-response', 'Invalid settings value')
@@ -17,7 +18,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     const entry = object(raw), provider = providerOf(entry.id)
     if (ids.has(provider.id)) throw new SearchError('invalid-response', 'Duplicate search provider')
     ids.add(provider.id)
-    return { ...provider, enabled: boolean(entry.enabled), configured: boolean(entry.configured), writable: boolean(entry.writable),
+    return { ...provider, search: validateSearchOptions(provider.id, entry.search ?? {}), enabled: boolean(entry.enabled), configured: boolean(entry.configured), writable: boolean(entry.writable),
       keyOptional: !!provider.keyOptional, supportsKeys: !!provider.env, webSearch: provider.webSearch !== false,
       ...entry.source === undefined ? {} : { source: string(entry.source) } }
   })

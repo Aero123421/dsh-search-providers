@@ -1,4 +1,5 @@
 import { PROVIDERS, SearchError, providerOf, type Capability, type ProviderId, type SearchResult } from './catalog.ts'
+import type { SearchOptions } from './search-options.ts'
 import type { SearchAdapter } from './adapters.ts'
 
 export function quotaLimited(error: unknown): error is SearchError {
@@ -11,17 +12,18 @@ function skipFallback(error: unknown): boolean {
 export async function searchWithFallback(options: {
   primary: ProviderId
   adapters: ReadonlyMap<ProviderId, SearchAdapter>
-  request: { query: string; maxResults?: number }
+  request: { query: string; maxResults?: number; options?: SearchOptions }
   signal?: AbortSignal
   capability?: Capability
 }): Promise<SearchResult> {
   const { primary, adapters, request, signal, capability } = options
   const primaryAdapter = adapters.get(primary)
   if (!primaryAdapter) throw new SearchError('invalid-request', 'Unknown search provider')
+  const constrained = primaryAdapter.configuredOptions() || Object.keys(request.options ?? {}).length > 0
   let primaryError: SearchError | undefined
   try { return await primaryAdapter.search(request, signal, capability) }
   catch (error) {
-    if (signal?.aborted || !quotaLimited(error)) throw error
+    if (signal?.aborted || !quotaLimited(error) || constrained || primaryAdapter.configuredOptions() || Object.keys(request.options ?? {}).length) throw error
     primaryError = error
   }
   for (const row of PROVIDERS) {
@@ -29,7 +31,7 @@ export async function searchWithFallback(options: {
     if (provider.id === primary || provider.webSearch === false) continue
     if (capability && !provider.capabilities.includes(capability)) continue
     const adapter = adapters.get(provider.id)
-    if (!adapter?.available()) continue
+    if (!adapter?.available() || adapter.configuredOptions()) continue
     try { return await adapter.search(request, signal, capability) }
     catch (error) {
       if (signal?.aborted || !skipFallback(error)) throw error
