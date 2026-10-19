@@ -20,6 +20,10 @@ jobs:
       - run: npm run test:peers
       - run: npm run build
       - run: git diff --exit-code -- dist
+      - name: Distribution does not define a language
+        run: |
+          command -v rg >/dev/null
+          if rg -n "addLanguage" src dist; then exit 1; fi
       - run: npm run test:compat
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
