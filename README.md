@@ -12,9 +12,11 @@ FxTwitterの `x_search` で、Xの投稿検索と投稿URLからの本文取得�
 dsh plugin --profile web add -w github:Aero123421/dsh-search-providers
 ```
 
-ビルド済みファイルを含むため、インストール時のビルドは不要です。DSHを再起動し、「設定 → 検索プロバイダー」を開きます。
+DSHを再起動し、「設定 → 検索プロバイダー」を開きます。
 
-版を固定する指定例は `github:Aero123421/dsh-search-providers#v0.4.0` です。該当タグの公開後に利用できます。公開済みのタグと配布ファイルは[Release一覧](https://github.com/Aero123421/dsh-search-providers/releases)で確認してください。
+表示言語はDSHの言語設定に従います。このプラグインは新しい言語を追加しません。DSH `0.2.1-rc.2` には英語と中国語があり、日本語の表示には `dsh-japanese` が必要です。
+
+ビルド済みファイルを含むため、インストール時のビルドは不要です。版を固定する指定例は `github:Aero123421/dsh-search-providers#v0.4.1` です。該当タグの公開後に利用できます。公開済みのタグと配布ファイルは[Release一覧](https://github.com/Aero123421/dsh-search-providers/releases)で確認してください。
 
 ## 使い方
 
@@ -71,7 +73,7 @@ extract_web_pages({ urls: ["https://example.com/guide", "https://example.org/art
 
 ハンドルは15分・提供元ごと100件の一時保存で、再起動や解除で失効します。自動の全件取得や続きの他社切り替えはなく、各ページに料金・利用枠がかかります。重複URLを省きますが、順位・網羅性は保証しません。[ページ範囲と失効条件](docs/search-options.md#件数と明示的な続き取得)
 
-[API仕様と対応範囲](docs/providers.md) · [検索設定](docs/search-options.md) · [0.4.0更新内容](docs/release-0.4.0.md) · [開発と検証](docs/development.md)
+[API仕様と対応範囲](docs/providers.md) · [検索設定](docs/search-options.md) · [0.4.1の変更](docs/release-0.4.1.md) · [開発と検証](docs/development.md)
 
 ## X検索
 
@@ -98,7 +100,11 @@ FxTwitterは追加ツール専用です。通常の `web_search` の検索先に
 dsh plugin --profile web remove -w @aero123421/dsh-search-providers
 ```
 
-アンインストール後はDSHを再起動します。保存済みのキーは自動削除しません。`0.3.2` へ戻す場合、新しい機能の保存項目はOFFでも旧版が読めないため、先に[バックアップと設定整理](docs/release-0.4.0.md#更新と旧版への復帰)を行ってください。
+アンインストール後はDSHを再起動します。プラグインを無効にしても、更新しても、アンインストールしても、保存済みのAPIキーは削除しません。不要なキーは、設定画面の「保存したキーを削除」で消します。`0.3.2` へ戻す場合、新しい機能の保存項目はOFFでも旧版が読めないため、先に[バックアップと設定整理](docs/release-0.4.0.md#更新と旧版への復帰)を行ってください。
+
+認識できない提供元や機能、読めない検索設定が保存されていても、プラグインの起動と一覧の取得は続けます。その項目は使わず、設定画面に理由と「保存項目を削除」を出します。削除するのはその設定項目だけで、APIキーは残します。通常の保存操作では、未知の提供元や未対応の機能を拒否します。
+
+[0.4.1の変更](docs/release-0.4.1.md) · [0.4.0更新内容](docs/release-0.4.0.md) · [開発と検証](docs/development.md)
 
 ## 検証
 

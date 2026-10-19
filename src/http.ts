@@ -19,31 +19,38 @@ export function publicUrl(value: unknown): string {
 }
 export type Transport = (url: string | URL, init?: RequestInit) => Promise<Response>
 export const MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+function rethrowTransport(error: unknown, caller: AbortSignal | undefined, deadline: AbortSignal): never {
+  if (error instanceof SearchError || caller?.aborted) throw error
+  if (deadline.aborted || error instanceof Error && error.name === 'TimeoutError') throw new SearchError('timeout', 'Search API request timed out')
+  throw error
+}
 export async function jsonRequest(transport: Transport, url: string | URL, init: RequestInit, signal?: AbortSignal): Promise<Record<string, unknown>> {
   const deadline = AbortSignal.timeout(45_000)
   const combined = signal ? AbortSignal.any([signal, deadline]) : deadline
-  combined.throwIfAborted()
-  const response = await transport(url, { ...init, redirect: 'error', signal: combined })
-  if (!response.ok) {
-    await response.body?.cancel()
-    throw new SearchError(response.status === 429 ? 'rate-limited' : response.status === 401 || response.status === 403 ? 'authentication-failed' : 'provider-failed', `Search API returned HTTP ${response.status}`, response.status)
-  }
-  if (!response.body) throw new SearchError('invalid-response', 'Empty API response')
-  const reader = response.body.getReader(), chunks: Uint8Array[] = []
-  let length = 0
   try {
-    while (true) {
-      combined.throwIfAborted()
-      const { done, value } = await reader.read()
-      if (done) break
-      length += value.length
-      if (length > MAX_RESPONSE_BYTES) throw new SearchError('response-too-large', 'Search API response exceeds the size limit')
-      chunks.push(value)
+    combined.throwIfAborted()
+    const response = await transport(url, { ...init, redirect: 'error', signal: combined })
+    if (!response.ok) {
+      await response.body?.cancel()
+      throw new SearchError(response.status === 429 ? 'rate-limited' : response.status === 401 || response.status === 403 ? 'authentication-failed' : 'provider-failed', `Search API returned HTTP ${response.status}`, response.status)
     }
-  } catch (error) { await reader.cancel().catch(() => {}); throw error } finally { reader.releaseLock() }
-  combined.throwIfAborted()
-  try { return object(JSON.parse(Buffer.concat(chunks).toString('utf8'))) }
-  catch (error) { if (error instanceof SearchError) throw error; throw new SearchError('invalid-response', 'Invalid JSON response') }
+    if (!response.body) throw new SearchError('invalid-response', 'Empty API response')
+    const reader = response.body.getReader(), chunks: Uint8Array[] = []
+    let length = 0
+    try {
+      while (true) {
+        combined.throwIfAborted()
+        const { done, value } = await reader.read()
+        if (done) break
+        length += value.length
+        if (length > MAX_RESPONSE_BYTES) throw new SearchError('response-too-large', 'Search API response exceeds the size limit')
+        chunks.push(value)
+      }
+    } catch (error) { await reader.cancel().catch(() => {}); throw error } finally { reader.releaseLock() }
+    combined.throwIfAborted()
+    try { return object(JSON.parse(Buffer.concat(chunks).toString('utf8'))) }
+    catch (error) { if (error instanceof SearchError) throw error; throw new SearchError('invalid-response', 'Invalid JSON response') }
+  } catch (error) { rethrowTransport(error, signal, deadline) }
 }
 /** Shared by concurrent sessions. Cancellation removes queued work before it sends a request. */
 export class RequestGate {

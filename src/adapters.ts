@@ -1,5 +1,5 @@
 import { SearchError, object, providerOf, type Capability, type ProviderId, type Source, type SearchResult } from './catalog.ts'
-import { httpUrl, publicUrl, jsonRequest, RequestGate, type Transport } from './http.ts'
+import { publicUrl, jsonRequest, RequestGate, type Transport } from './http.ts'
 import { effectiveOptions, searchParameters, type SearchOptions } from './search-options.ts'
 import { sourceMetadata, type SourceMetadata } from './metadata.ts'
 import { batchExtract, type BatchExtractResult } from './batch-extract.ts'
@@ -23,7 +23,7 @@ function normalized(rows: unknown[], limit: number, id: ProviderId, capability?:
   for (const value of rows) {
     const row = object(value)
     let url: string
-    try { url = httpUrl(row.url) } catch { truncated = true; continue }
+    try { url = publicUrl(row.url) } catch { truncated = true; continue }
     if (seen.has(url)) continue
     seen.add(url)
     const source: Source = { url }
@@ -213,7 +213,7 @@ export class SearchAdapter {
       default: throw new SearchError('unsupported-capability', 'This provider does not support extraction')
     }
     if (typeof content !== 'string') throw new SearchError('extract-failed', 'The API did not return page text')
-    const result: ExtractResult = { url: httpUrl(row.final_url ?? row.url ?? url), content: content.slice(0, TEXT_LIMIT), truncated: content.length > TEXT_LIMIT }
+    const result: ExtractResult = { url: publicUrl(row.final_url ?? row.url ?? url), content: content.slice(0, TEXT_LIMIT), truncated: content.length > TEXT_LIMIT }
     if (typeof row.title === 'string') result.title = row.title.slice(0, 1000)
     const extra = sourceMetadata(row, id)
     Object.assign(result, extra.metadata); result.truncated ||= extra.truncated

@@ -107,6 +107,28 @@ test('Unsupported capability configurations are rejected', () => {
   assert.throws(() => validateSettings({ providers: {}, tools: { papers: { provider: 'brave', enabled: true } } }))
   assert.throws(() => validateSettings({ providers: { unknown: {} }, tools: {} }))
 })
+test('Search results drop loopback and metadata URLs', async () => {
+  const adapter = new SearchAdapter({ id: 'exa', enabled: () => true, resolveKey: async () => 'key', transport: async () => Response.json({ results: [
+    { url: 'http://127.0.0.1/secret', title: 'local' },
+    { url: 'http://169.254.169.254/latest/meta-data', title: 'metadata' },
+    { url: 'https://example.com/article', title: 'Example' },
+  ] }) })
+  const result = await adapter.search({ query: 'example' })
+  assert.deepEqual(result.sources.map(source => source.url), ['https://example.com/article'])
+  assert.equal(result.truncated, true)
+})
+test('Extraction refuses a private final URL', async () => {
+  for (const finalUrl of ['http://127.0.0.1/secret', 'http://169.254.169.254/latest/meta-data']) {
+    const adapter = new SearchAdapter({ id: 'exa', enabled: () => true, resolveKey: async () => 'key', transport: async () => Response.json({ results: [{ url: finalUrl, text: 'secret' }] }) })
+    await assert.rejects(adapter.extract('https://example.com/article'), error => error.code === 'blocked-url')
+  }
+})
+test('An AbortSignal timeout is a timeout error and caller cancellation is not', async () => {
+  const timeout = new DOMException('The operation was aborted due to timeout', 'TimeoutError')
+  await assert.rejects(jsonRequest(async () => { throw timeout }, 'https://example.com', {}), error => error.code === 'timeout')
+  const caller = AbortSignal.abort(new DOMException('The operation was aborted', 'AbortError'))
+  await assert.rejects(jsonRequest(async () => { throw new DOMException('The operation was aborted', 'AbortError') }, 'https://example.com', {}, caller), error => error.name === 'AbortError' && error.code !== 'timeout')
+})
 test('Unloading the adapter aborts requests and blocks later sends', async () => {
   let ready
   const entered = new Promise(resolve => { ready = resolve })

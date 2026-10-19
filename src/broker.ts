@@ -4,7 +4,7 @@ import type {} from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-config-editor'
 import { credentialKey, credentialRef } from '@deepseek-ai/dsh-credentials'
 import { createHash } from 'node:crypto'
-import { NS, PROVIDERS, SearchError, object, providerOf, capabilityOf, providerRoute, type Settings, type ProviderId } from './catalog.ts'
+import { NS, PROVIDERS, PROBLEM_REASONS, SearchError, ignoredPath, object, providerOf, capabilityOf, providerRoute, readSettings, type ProviderId } from './catalog.ts'
 import { validateSearchOptions } from './search-options.ts'
 import type { Snapshot } from './state.ts'
 
@@ -40,17 +40,18 @@ export class SearchBroker {
       ...saved.configured ? { source: 'saved' } : ambient.configured ? { source: env } : {} }
   }
   async snapshot(): Promise<Snapshot> {
-    const section = this.section(), value = object(section.value), providers = object(value.providers ?? {}), config = this.webEntry().options.config ?? {}
+    const section = this.section(), read = readSettings(section.value), config = this.webEntry().options.config ?? {}
+    const raw = section.value
+    const stored = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {}
     const searchProvider = typeof config.searchProvider === 'string' ? config.searchProvider : process.env.DSH_WEB_SEARCH_PROVIDER ?? 'deepseek-official'
     return {
       revision: section.revision, searchProvider, searchRevision: fingerprint(config),
-      nativeSearchProvider: typeof value.nativeSearchProvider === 'string' ? value.nativeSearchProvider : 'deepseek-official',
-      tools: value.tools as Settings['tools'],
+      nativeSearchProvider: typeof stored.nativeSearchProvider === 'string' ? stored.nativeSearchProvider : 'deepseek-official',
+      tools: read.settings.tools, problems: read.problems,
       entries: await Promise.all(PROVIDERS.map(async row => {
-        const provider = providerOf(row.id)
+        const provider = providerOf(row.id), profile = read.settings.providers[row.id]
         return { ...provider, keyOptional: !!provider.keyOptional, supportsKeys: !!provider.env, webSearch: provider.webSearch !== false,
-          enabled: Object.hasOwn(providers, row.id) && object(providers[row.id]).enabled === true,
-          search: validateSearchOptions(row.id, Object.hasOwn(providers, row.id) ? object(providers[row.id]).search ?? {} : {}), ...await this.credential(row.id) }
+          enabled: profile?.enabled === true, ...profile?.search ? { search: profile.search } : {}, ...await this.credential(row.id) }
       })),
     }
   }
@@ -92,6 +93,13 @@ export class SearchBroker {
       if (data.enabled && !entry.enabled) throw new SearchError('provider-disabled', 'Enable the provider first')
       if (!data.enabled && snapshot.tools[capability]?.provider !== id) throw new SearchError('settings-changed', 'Another provider supplies this capability')
       await this.ctx.settings.update(NS, { tools: { [capability]: { provider: id, enabled: data.enabled } } }, revision)
+    } else if (method === 'remove-ignored') {
+      const scope = data.scope === 'providers' || data.scope === 'tools' ? data.scope : undefined
+      const reason = PROBLEM_REASONS.find(item => item === data.reason)
+      if (!scope || !reason || typeof data.id !== 'string' || data.id.length > 300) throw new SearchError('invalid-request', 'Invalid ignored setting')
+      const problem = readSettings(this.section().value).problems.find(item => item.scope === scope && item.id === data.id && item.reason === reason)
+      if (!problem) throw new SearchError('settings-changed', 'Settings changed in another window')
+      await this.ctx.settings.mutate(NS, [{ op: 'unset', path: ignoredPath(problem) }], revision)
     } else if (method === 'default') {
       if (id && providerOf(id).webSearch === false) throw new SearchError('invalid-request', 'This provider only supplies additional tools')
       const snapshot = await this.snapshot(), entry = this.webEntry()

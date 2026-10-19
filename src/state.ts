@@ -1,7 +1,7 @@
-import { PROVIDERS, SearchError, object, providerOf, capabilityOf, type Settings, type ProviderId, type Capability } from './catalog.ts'
+import { PROBLEM_REASONS, PROVIDERS, SearchError, object, providerOf, capabilityOf, type Settings, type SettingsProblem, type ProviderId, type Capability } from './catalog.ts'
 import { validateSearchOptions, type SearchOptions } from './search-options.ts'
 export interface ProviderView { search?: SearchOptions; id: ProviderId; label: string; capabilities: readonly Capability[]; enabled: boolean; configured: boolean; writable: boolean; keyOptional: boolean; supportsKeys: boolean; webSearch: boolean; source?: string }
-export interface Snapshot { entries: ProviderView[]; revision: number; searchProvider: string; searchRevision: string; nativeSearchProvider: string; tools: Settings['tools'] }
+export interface Snapshot { entries: ProviderView[]; problems: SettingsProblem[]; revision: number; searchProvider: string; searchRevision: string; nativeSearchProvider: string; tools: Settings['tools'] }
 function string(value: unknown): string {
   if (typeof value !== 'string' || value.length > 300) throw new SearchError('invalid-response', 'Invalid settings value')
   return value
@@ -28,5 +28,16 @@ export function parseSnapshot(value: unknown): Snapshot {
     if (!provider.capabilities.includes(capability)) throw new SearchError('invalid-response', 'Unsupported search capability')
     tools[capability] = { provider: provider.id, enabled: boolean(profile.enabled) }
   }
-  return { entries, tools, revision: row.revision as number, searchProvider: string(row.searchProvider), searchRevision: string(row.searchRevision), nativeSearchProvider: string(row.nativeSearchProvider) }
+  const problems = row.problems === undefined ? [] : problemsOf(row.problems)
+  return { entries, tools, problems, revision: row.revision as number, searchProvider: string(row.searchProvider), searchRevision: string(row.searchRevision), nativeSearchProvider: string(row.nativeSearchProvider) }
+}
+function problemsOf(value: unknown): SettingsProblem[] {
+  if (!Array.isArray(value) || value.length > 100) throw new SearchError('invalid-response', 'Invalid settings snapshot')
+  return value.map(raw => {
+    const problem = object(raw)
+    const scope = problem.scope === 'providers' || problem.scope === 'tools' ? problem.scope : undefined
+    const reason = PROBLEM_REASONS.find(item => item === problem.reason)
+    if (!scope || !reason || typeof problem.id !== 'string' || problem.id.length > 300) throw new SearchError('invalid-response', 'Invalid settings snapshot')
+    return { scope, id: problem.id, reason }
+  })
 }

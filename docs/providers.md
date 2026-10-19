@@ -90,6 +90,8 @@ Exaの `statuses` は省略または空配列でも、一意なURL対応と空�
 
 他社への切り替えは、条件のない初回検索のHTTP 429だけです。保存済み／呼出しの条件が1項目でもあれば切り替えず、保存条件がある候補も飛ばします。続き取得・抽出・一覧・Xは切り替えません。[詳細](search-options.md#http-429と他社への切り替え)
 
+検索結果の出典URLと、本文取得が返す最終URLは、抽出入力と同じ公開URL条件です。ループバックや `169.254.0.0/16` などの出典は結果から除き、検索結果は切り詰めます。最終URLが公開URLでない本文取得は失敗します。HTTPの45秒期限を超えた要求は `timeout` です。呼出し側が取り消した場合は、この期限切れにしません。
+
 ## FxTwitter
 
 `x_search` は公開APIをキーなしで呼び出します。キーワード検索は `q`・`feed=latest/top`・`count` を使い、投稿URLの場合はIDを取り出して投稿APIを呼びます。任意の入力URLを直接fetchしません。[検索](https://docs.fxembed.com/api/twitter/operations/2search/) · [投稿取得](https://docs.fxembed.com/api/twitter/operations/2statusid/)
