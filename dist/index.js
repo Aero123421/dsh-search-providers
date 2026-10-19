@@ -3187,7 +3187,7 @@ var SearchBroker = class {
           supportsKeys: !!provider.env,
           webSearch: provider.webSearch !== false,
           enabled: profile?.enabled === true,
-          ...profile?.search ? { search: profile.search } : {},
+          search: profile?.search ?? {},
           ...await this.credential(row.id)
         };
       }))
@@ -3202,6 +3202,16 @@ var SearchBroker = class {
   async dispatch(method, payload) {
     const data = object(payload);
     if (method === "list") return this.snapshot();
+    if (method === "remove-ignored") {
+      const revision2 = this.checkRevision(data.revision);
+      const scope = data.scope === "providers" || data.scope === "tools" ? data.scope : void 0;
+      const reason = PROBLEM_REASONS.find((item) => item === data.reason);
+      if (!scope || !reason || typeof data.id !== "string" || data.id.length > 300) throw new SearchError("invalid-request", "Invalid ignored setting");
+      const problem = readSettings(this.section().value).problems.find((item) => item.scope === scope && item.id === data.id && item.reason === reason);
+      if (!problem) throw new SearchError("settings-changed", "Settings changed in another window");
+      await this.ctx.settings.mutate(NS, [{ op: "unset", path: ignoredPath(problem) }], revision2);
+      return { saved: true };
+    }
     const id = method === "default" && data.provider === "native" ? void 0 : providerOf(data.provider).id;
     if (method === "save-key") {
       if (!id || !providerOf(id).env || typeof data.key !== "string" || !data.key.trim() || data.key.length > 16384 || /[\r\n]/.test(data.key)) throw new SearchError("invalid-request", "Invalid API key");
@@ -3230,13 +3240,6 @@ var SearchBroker = class {
       if (data.enabled && !entry.enabled) throw new SearchError("provider-disabled", "Enable the provider first");
       if (!data.enabled && snapshot.tools[capability]?.provider !== id) throw new SearchError("settings-changed", "Another provider supplies this capability");
       await this.ctx.settings.update(NS, { tools: { [capability]: { provider: id, enabled: data.enabled } } }, revision);
-    } else if (method === "remove-ignored") {
-      const scope = data.scope === "providers" || data.scope === "tools" ? data.scope : void 0;
-      const reason = PROBLEM_REASONS.find((item) => item === data.reason);
-      if (!scope || !reason || typeof data.id !== "string" || data.id.length > 300) throw new SearchError("invalid-request", "Invalid ignored setting");
-      const problem = readSettings(this.section().value).problems.find((item) => item.scope === scope && item.id === data.id && item.reason === reason);
-      if (!problem) throw new SearchError("settings-changed", "Settings changed in another window");
-      await this.ctx.settings.mutate(NS, [{ op: "unset", path: ignoredPath(problem) }], revision);
     } else if (method === "default") {
       if (id && providerOf(id).webSearch === false) throw new SearchError("invalid-request", "This provider only supplies additional tools");
       const snapshot = await this.snapshot(), entry = this.webEntry();
