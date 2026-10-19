@@ -30,4 +30,4 @@ DSH `0.2.1-rc.2` のbundle宣言に、アンインストール専用のcallback�
 
 起動中に無効化するか、起動中にアンインストールすると、プラグインの解除時に通常検索の `searchProvider` を `nativeSearchProvider`（無ければ `deepseek-official`）へ戻します。通常の終了では、bundleが選択されたままで項目が無効でなければ、検索先もキーも変えません。更新中は印を残し、検索先とキーを維持します。更新がpackageを消したまま終わった場合だけ、そのあとで検索先を戻しキーを消します。
 
-キーの削除は、profileの `.pnpmfile.cjs` がpnpmの `afterAllResolved` から `dist/uninstall-hook.cjs` を呼ぶ経路です。この時点では `package.json` に依存が残っていても、解決済みlockfileからは外れ、packageのファイルはまだ `node_modules` にあります。フックはそこを見て削除します。profileに別の `.pnpmfile.cjs` がある場合は上書きせず、停止中のCLI削除では検索先もキーも自動では変わりません。ホストを止めたままpatchだけを無効にした場合も、プラグインが起動しないため検索先は戻りません。その二つは、削除前に「DSH標準 → 通常検索に使う」と「保存したキーを削除」を使います。
+Hostは `yaml` を依存として読みます。削除フックの `dist/uninstall-hook.cjs` は同じ処理を同梱し、pnpmの解決中に別の依存を要求しません。キーの削除は、profileの `.pnpmfile.cjs` がpnpmの `afterAllResolved` からそのフックを呼ぶ経路です。この時点では `package.json` に依存が残っていても、解決済みlockfileからは外れ、packageのファイルはまだ `node_modules` にあります。フックはそこを見て削除します。profileに別の `.pnpmfile.cjs` がある場合は上書きせず、停止中のCLI削除では検索先もキーも自動では変わりません。ホストを止めたままpatchだけを無効にした場合も、プラグインが起動しないため検索先は戻りません。その二つは、削除前に「DSH標準 → 通常検索に使う」と「保存したキーを削除」を使います。
