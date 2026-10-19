@@ -13,6 +13,7 @@ import { Updates } from './updates.ts'
 import { VERSION } from './version.ts'
 import { withMetadataSnippets } from './metadata-presentation.ts'
 import { registerExtraTools } from './tools.ts'
+import { ensureUninstallHook, releaseOnUnload } from './profile-release.ts'
 
 export const name = NS
 export const inject = ['web', 'tools', 'settings', 'credentials', 'configEditor', 'connection']
@@ -28,6 +29,8 @@ export interface LiveConfig {
   tools: { get(): Settings['tools'] }
 }
 export function apply(ctx: Context, config: LiveConfig): void {
+  const profileDir = ctx.get('profileContext')?.dir
+  if (typeof profileDir === 'string' && ensureUninstallHook(profileDir) === 'skipped') ctx.logger.warn('left the existing pnpmfile in place, so uninstall cleanup is not installed')
   const current = () => readSettings({ providers: config.providers.get(), tools: config.tools.get() })
   const settings = (): Settings => current().settings
   let reported = ''
@@ -46,6 +49,11 @@ export function apply(ctx: Context, config: LiveConfig): void {
   ctx.effect(() => ctx.settings.configure({ auto: false }, ctx.fiber))
   const updates = new Updates(() => ctx.get('pluginManager'), ctx.get('profileContext')?.dir, VERSION, getDshRuntimeVersion())
   ctx.effect(() => () => updates.dispose())
+  ctx.effect(() => () => {
+    if (typeof profileDir !== 'string') return
+    try { releaseOnUnload(profileDir) }
+    catch (error) { ctx.logger.warn('could not restore the previous search provider: %s', error instanceof Error ? error.message : 'failed') }
+  })
   const broker = new SearchBroker(ctx), adapters = new Map<ProviderId, SearchAdapter>()
   ctx.effect(() => () => { for (const adapter of adapters.values()) adapter.dispose() })
   for (const provider of PROVIDERS) {

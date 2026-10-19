@@ -5,6 +5,7 @@ import { boundedFetch } from './update-download.ts'
 import { gunzipSync } from 'node:zlib'
 import semver from 'semver'
 import { brandString } from '@deepseek-ai/dsh-brand'
+import { clearReplacing, markReplacing, releaseOnRemove } from './profile-release.ts'
 import type { BundleInfo, ChangeResult, ManagementError, PluginInstallRequestId } from '@deepseek-ai/dsh-plugin-manager/types'
 
 export const PACKAGE = '@aero123421/dsh-search-providers'
@@ -281,8 +282,16 @@ export class Updates {
         const requestId = brandString<PluginInstallRequestId>(operationId)
         let result = await manager.installBundle(spec, { enabled: before.enabled, requestId })
         if (changeErrorCode(result) === 'already-installed') {
-          const replaced = await replaceInstalled(manager, spec, before.enabled, before.source, requestId)
-          if (replaced) result = replaced
+          if (this.dir) markReplacing(this.dir)
+          try {
+            const replaced = await replaceInstalled(manager, spec, before.enabled, before.source, requestId)
+            if (replaced) result = replaced
+          } finally {
+            if (this.dir) {
+              clearReplacing(this.dir)
+              try { releaseOnRemove(this.dir) } catch { /* The package is still installed, or the profile files could not be updated. */ }
+            }
+          }
         }
         this.operation.result = result; await this.save()
         // Disposal during removeBundle makes this.bundle() report cancellation. The manager service can still list.

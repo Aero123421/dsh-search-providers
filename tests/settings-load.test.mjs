@@ -67,6 +67,41 @@ test('Saving from the UI still rejects unknown providers and unsupported feature
   assert.throws(() => validateSettings({ providers: {}, tools: { papers: { provider: 'brave', enabled: true } } }))
   assert.doesNotThrow(() => validateSettings({ providers: { exa: { enabled: true } }, tools: {} }))
 })
+test('Startup accepts the saved documents that previously stopped the plugin', () => {
+  const cases = [
+    { providers: { 'not-a-provider': { enabled: true } }, tools: {} },
+    { providers: { brave: { enabled: 'yes' } }, tools: {} },
+    { providers: {}, tools: { mystery: { provider: 'exa', enabled: true } } },
+    { providers: {}, tools: { papers: { provider: 'brave', enabled: true } } },
+    { providers: { exa: { enabled: true, search: { mode: 'nope' } } }, tools: {} },
+    { providers: 'exa', tools: {} },
+    { providers: {}, tools: { web: { enabled: true } } },
+    { providers: { exa: null }, tools: { web: { provider: 'exa', enabled: true } } },
+  ]
+  for (const raw of cases) {
+    assert.doesNotThrow(() => Config(raw))
+    const read = kept(raw)
+    assert.ok(read.problems.length > 0, JSON.stringify(raw))
+  }
+  const unknown = kept(cases[0])
+  assert.deepEqual(unknown.problems, [{ scope: 'providers', id: 'not-a-provider', reason: 'unknown-provider' }])
+  const enabled = kept(cases[1])
+  assert.equal(enabled.settings.providers.brave.enabled, undefined)
+  assert.deepEqual(enabled.problems, [{ scope: 'providers', id: 'brave', reason: 'invalid-state' }])
+  const feature = kept(cases[2])
+  assert.deepEqual(feature.problems, [{ scope: 'tools', id: 'mystery', reason: 'unknown-capability' }])
+  const unsupported = kept(cases[3])
+  assert.deepEqual(unsupported.problems, [{ scope: 'tools', id: 'papers', reason: 'unsupported-capability' }])
+  const mode = kept(cases[4])
+  assert.equal(mode.settings.providers.exa.enabled, true)
+  assert.equal(mode.settings.providers.exa.search, undefined)
+  assert.deepEqual(mode.problems, [{ scope: 'providers', id: 'exa', reason: 'invalid-search' }])
+  assert.deepEqual(kept(cases[5]).problems, [{ scope: 'providers', id: '', reason: 'malformed' }])
+  assert.deepEqual(kept(cases[6]).problems, [{ scope: 'tools', id: 'web', reason: 'malformed' }])
+  const absent = kept(cases[7])
+  assert.deepEqual(absent.settings.tools.web, { provider: 'exa', enabled: true })
+  assert.deepEqual(absent.problems, [{ scope: 'providers', id: 'exa', reason: 'malformed' }])
+})
 test('The config schema accepts malformed saved documents', () => {
   for (const raw of [
     undefined,

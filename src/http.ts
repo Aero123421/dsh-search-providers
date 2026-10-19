@@ -72,13 +72,22 @@ export class RequestGate {
       this.queue.push(ticket); signal?.addEventListener('abort', ticket.abort, { once: true })
     })
     else this.active++
+    let released = false
+    const release = () => {
+      if (released) return
+      released = true
+      const next = this.queue.shift()
+      if (next) { next.signal?.removeEventListener('abort', next.abort); next.resolve() }
+      else this.active--
+    }
+    const onAbort = () => release()
+    signal?.addEventListener('abort', onAbort, { once: true })
     try {
       signal?.throwIfAborted()
       return await operation()
     } finally {
-      const next = this.queue.shift()
-      if (next) { next.signal?.removeEventListener('abort', next.abort); next.resolve() }
-      else this.active--
+      signal?.removeEventListener('abort', onAbort)
+      release()
     }
   }
 }

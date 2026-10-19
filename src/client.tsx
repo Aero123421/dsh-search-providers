@@ -200,6 +200,7 @@ export function SearchSettings({ controller, locale, updates }: PageProps) {
     <h2>{t('title')}</h2>
     <p className="dsh-search-note">{t('pricingNote')} <a href="https://api-dashboard.search.brave.com/documentation/resources/help-feedback" target="_blank" rel="noreferrer">{t('bravePricing')}</a></p>
     <p className="dsh-search-note">{t('fallbackNote')}</p>
+    <p className="dsh-search-note">{t('lifecycleNote')}</p>
     <UpdateRow controller={updates} t={t} />
     {state.error && <p role="alert" className="dsh-search-error">{t('loadFailed')} <Button size="sm" onClick={() => { void controller.refresh() }}>{t('retry')}</Button></p>}
     {error && <p role="alert" className="dsh-search-error">{t(error)}</p>}
