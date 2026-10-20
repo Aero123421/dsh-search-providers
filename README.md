@@ -12,9 +12,11 @@ FxTwitterの `x_search` で、Xの投稿検索と投稿URLからの本文取得�
 dsh plugin --profile web add -w github:Aero123421/dsh-search-providers
 ```
 
-ビルド済みファイルを含むため、インストール時のビルドは不要です。DSHを再起動し、「設定 → 検索プロバイダー」を開きます。
+DSHを再起動し、「設定 → 検索プロバイダー」を開きます。
 
-版を固定する指定例は `github:Aero123421/dsh-search-providers#v0.4.0` です。該当タグの公開後に利用できます。公開済みのタグと配布ファイルは[Release一覧](https://github.com/Aero123421/dsh-search-providers/releases)で確認してください。
+表示言語はDSHの言語設定に従います。このプラグインは新しい言語を追加しません。DSH `0.2.1-rc.2` には英語と中国語があり、日本語の表示には [dsh-japanese](https://github.com/Aero123421/dsh-japanese) が必要です。
+
+ビルド済みファイルを含むため、インストール時のビルドは不要です。`dist` の依存パスはパッケージマネージャで変わるため、作り直すときは `npm ci` のあとで `npm run build` します。版を固定する指定例は `github:Aero123421/dsh-search-providers#v0.4.1` です。該当タグの公開後に利用できます。公開済みのタグと配布ファイルは[Release一覧](https://github.com/Aero123421/dsh-search-providers/releases)で確認してください。
 
 ## 使い方
 
@@ -71,7 +73,7 @@ extract_web_pages({ urls: ["https://example.com/guide", "https://example.org/art
 
 ハンドルは15分・提供元ごと100件の一時保存で、再起動や解除で失効します。自動の全件取得や続きの他社切り替えはなく、各ページに料金・利用枠がかかります。重複URLを省きますが、順位・網羅性は保証しません。[ページ範囲と失効条件](docs/search-options.md#件数と明示的な続き取得)
 
-[API仕様と対応範囲](docs/providers.md) · [検索設定](docs/search-options.md) · [0.4.0更新内容](docs/release-0.4.0.md) · [開発と検証](docs/development.md)
+[API仕様と対応範囲](docs/providers.md) · [検索設定](docs/search-options.md) · [0.4.1の変更](docs/release-0.4.1.md) · [開発と検証](docs/development.md)
 
 ## X検索
 
@@ -92,13 +94,28 @@ FxTwitterは追加ツール専用です。通常の `web_search` の検索先に
 
 ## 元の検索先に戻す
 
-「DSH標準 → 通常検索に使う」で、このプラグインで変更する前の検索先に戻します。アンインストールする場合は先に戻してください。
+このプラグインを通常検索に使っているとき、プラグインを無効にするか削除すると、通常検索の検索先は切り替える前の値に戻します。その値は設定の `nativeSearchProvider` です。保存がない場合は `deepseek-official` です。`fetchProvider` など、ウェブ設定の他の項目は残します。起動中に設定画面から無効にした場合と、起動中にアンインストールした場合は、プラグインの解除時に戻します。
 
 ```sh
 dsh plugin --profile web remove -w @aero123421/dsh-search-providers
 ```
 
-アンインストール後はDSHを再起動します。保存済みのキーは自動削除しません。`0.3.2` へ戻す場合、新しい機能の保存項目はOFFでも旧版が読めないため、先に[バックアップと設定整理](docs/release-0.4.0.md#更新と旧版への復帰)を行ってください。
+ホストを止めた状態で上のコマンドを実行した場合は、profileに `.pnpmfile.cjs` が無いときに、このプラグインの起動時へ追加したフックが戻します。pnpmが依存関係の解決を終えた時点では、削除対象のpackageはまだprofileの `node_modules` にあり、解決済みlockfileからは外れています。フックはその時点で検索先を戻し、保存したAPIキーを消します。
+
+次の操作では検索先を戻せません。削除や無効化の前に「DSH標準 → 通常検索に使う」で戻してください。
+
+- profileに、このプラグイン以外の `.pnpmfile.cjs` が既にある。起動中の無効化とアンインストールでは戻せます。停止中の `dsh plugin remove` では戻せません。
+- ホストを止めたまま、patchの該当項目だけを `disabled: true` にする、または選択中のbundleから外す。プラグインは起動しないため、解除処理は走りません。
+
+アンインストール後はDSHを再起動します。アンインストールでは、このプラグインが資格情報ストアへ保存した `dsh-search-providers/` のAPIキーを `$DSH_HOME/.credentials.yaml` から消します。他の記録は残します。プラグインを無効にしても、更新しても、キーは残します。プラグインを残したまま1件消す場合は、設定画面の「保存したキーを削除」を使います。
+
+別の `.pnpmfile.cjs` があるprofileでは、起動中でも停止中でも、アンインストール時のキー自動削除は走りません。起動中なら検索先は戻ります。キーは、削除する前に「保存したキーを削除」で消してください。
+
+`0.3.2` へ戻す場合、新しい機能の保存項目はOFFでも旧版が読めないため、先に[バックアップと設定整理](docs/release-0.4.0.md#更新と旧版への復帰)を行ってください。
+
+認識できない提供元や機能、読めない検索設定が保存されていても、プラグインの起動と一覧の取得は続けます。その項目は使わず、設定画面に理由と「保存項目を削除」を出します。削除するのはその設定項目だけで、APIキーは残します。通常の保存操作では、未知の提供元や未対応の機能を拒否します。
+
+[0.4.1の変更](docs/release-0.4.1.md) · [0.4.0更新内容](docs/release-0.4.0.md) · [開発と検証](docs/development.md)
 
 ## 検証
 

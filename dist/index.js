@@ -2044,40 +2044,49 @@ function publicUrl(value) {
   return parsed.href;
 }
 var MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+function rethrowTransport(error, caller, deadline) {
+  if (error instanceof SearchError || caller?.aborted) throw error;
+  if (deadline.aborted || error instanceof Error && error.name === "TimeoutError") throw new SearchError("timeout", "Search API request timed out");
+  throw error;
+}
 async function jsonRequest(transport, url, init, signal) {
   const deadline = AbortSignal.timeout(45e3);
   const combined = signal ? AbortSignal.any([signal, deadline]) : deadline;
-  combined.throwIfAborted();
-  const response = await transport(url, { ...init, redirect: "error", signal: combined });
-  if (!response.ok) {
-    await response.body?.cancel();
-    throw new SearchError(response.status === 429 ? "rate-limited" : response.status === 401 || response.status === 403 ? "authentication-failed" : "provider-failed", `Search API returned HTTP ${response.status}`, response.status);
-  }
-  if (!response.body) throw new SearchError("invalid-response", "Empty API response");
-  const reader = response.body.getReader(), chunks = [];
-  let length = 0;
   try {
-    while (true) {
-      combined.throwIfAborted();
-      const { done, value } = await reader.read();
-      if (done) break;
-      length += value.length;
-      if (length > MAX_RESPONSE_BYTES) throw new SearchError("response-too-large", "Search API response exceeds the size limit");
-      chunks.push(value);
+    combined.throwIfAborted();
+    const response = await transport(url, { ...init, redirect: "error", signal: combined });
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new SearchError(response.status === 429 ? "rate-limited" : response.status === 401 || response.status === 403 ? "authentication-failed" : "provider-failed", `Search API returned HTTP ${response.status}`, response.status);
+    }
+    if (!response.body) throw new SearchError("invalid-response", "Empty API response");
+    const reader = response.body.getReader(), chunks = [];
+    let length = 0;
+    try {
+      while (true) {
+        combined.throwIfAborted();
+        const { done, value } = await reader.read();
+        if (done) break;
+        length += value.length;
+        if (length > MAX_RESPONSE_BYTES) throw new SearchError("response-too-large", "Search API response exceeds the size limit");
+        chunks.push(value);
+      }
+    } catch (error) {
+      await reader.cancel().catch(() => {
+      });
+      throw error;
+    } finally {
+      reader.releaseLock();
+    }
+    combined.throwIfAborted();
+    try {
+      return object(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+    } catch (error) {
+      if (error instanceof SearchError) throw error;
+      throw new SearchError("invalid-response", "Invalid JSON response");
     }
   } catch (error) {
-    await reader.cancel().catch(() => {
-    });
-    throw error;
-  } finally {
-    reader.releaseLock();
-  }
-  combined.throwIfAborted();
-  try {
-    return object(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-  } catch (error) {
-    if (error instanceof SearchError) throw error;
-    throw new SearchError("invalid-response", "Invalid JSON response");
+    rethrowTransport(error, signal, deadline);
   }
 }
 var RequestGate = class {
@@ -2100,15 +2109,24 @@ var RequestGate = class {
       signal?.addEventListener("abort", ticket.abort, { once: true });
     });
     else this.active++;
-    try {
-      signal?.throwIfAborted();
-      return await operation();
-    } finally {
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
       const next = this.queue.shift();
       if (next) {
         next.signal?.removeEventListener("abort", next.abort);
         next.resolve();
       } else this.active--;
+    };
+    const onAbort = () => release();
+    signal?.addEventListener("abort", onAbort, { once: true });
+    try {
+      signal?.throwIfAborted();
+      return await operation();
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
+      release();
     }
   }
 };
@@ -2296,16 +2314,89 @@ function object(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new SearchError("invalid-response", "Expected an object");
   return value;
 }
-function validateSettings(settings) {
-  for (const [id, profile] of Object.entries(settings.providers)) {
-    const provider = providerOf(id);
-    if (profile.search !== void 0) validateSearchOptions(provider.id, profile.search);
-    if (profile.enabled !== void 0 && typeof profile.enabled !== "boolean") throw new SearchError("invalid-request", "Invalid provider state");
+var PROBLEM_REASONS = ["unknown-provider", "unknown-capability", "unsupported-capability", "invalid-search", "invalid-state", "malformed"];
+function record(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+function readSettings(raw) {
+  const problems = [], settings = { providers: {}, tools: {} };
+  if (!record(raw)) {
+    if (raw !== void 0) problems.push({ scope: "providers", id: "", reason: "malformed" });
+    return { settings, problems };
   }
-  for (const [id, profile] of Object.entries(settings.tools)) {
-    const feature = capabilityOf(id), provider = providerOf(profile.provider);
-    if (typeof profile.enabled !== "boolean" || !provider.capabilities.includes(feature)) throw new SearchError("invalid-request", "Unsupported capability");
+  readProviders(raw.providers, settings, problems);
+  readTools(raw.tools, settings, problems);
+  return { settings, problems };
+}
+function readProviders(raw, settings, problems) {
+  if (raw === void 0) return;
+  if (!record(raw)) {
+    problems.push({ scope: "providers", id: "", reason: "malformed" });
+    return;
   }
+  for (const [id, profile] of Object.entries(raw)) {
+    const provider = PROVIDERS.find((row) => row.id === id);
+    if (!provider) {
+      problems.push({ scope: "providers", id, reason: "unknown-provider" });
+      continue;
+    }
+    if (!record(profile)) {
+      problems.push({ scope: "providers", id, reason: "malformed" });
+      continue;
+    }
+    const next = {};
+    if (profile.enabled !== void 0) {
+      if (typeof profile.enabled === "boolean") next.enabled = profile.enabled;
+      else problems.push({ scope: "providers", id, reason: "invalid-state" });
+    }
+    if (profile.search !== void 0) {
+      try {
+        next.search = validateSearchOptions(provider.id, profile.search);
+      } catch {
+        problems.push({ scope: "providers", id, reason: "invalid-search" });
+      }
+    }
+    settings.providers[provider.id] = next;
+  }
+}
+function readTools(raw, settings, problems) {
+  if (raw === void 0) return;
+  if (!record(raw)) {
+    problems.push({ scope: "tools", id: "", reason: "malformed" });
+    return;
+  }
+  for (const [id, profile] of Object.entries(raw)) {
+    const capability = CAPABILITIES.find((item) => item === id);
+    if (!capability) {
+      problems.push({ scope: "tools", id, reason: "unknown-capability" });
+      continue;
+    }
+    if (!record(profile) || typeof profile.provider !== "string") {
+      problems.push({ scope: "tools", id, reason: "malformed" });
+      continue;
+    }
+    const provider = PROVIDERS.find((row) => row.id === profile.provider);
+    if (!provider) {
+      problems.push({ scope: "tools", id, reason: "unknown-provider" });
+      continue;
+    }
+    const capabilities = provider.capabilities;
+    if (!capabilities.includes(capability)) {
+      problems.push({ scope: "tools", id, reason: "unsupported-capability" });
+      continue;
+    }
+    if (typeof profile.enabled !== "boolean") {
+      problems.push({ scope: "tools", id, reason: "invalid-state" });
+      continue;
+    }
+    settings.tools[capability] = { provider: provider.id, enabled: profile.enabled };
+  }
+}
+function ignoredPath(problem) {
+  if (!problem.id) return [problem.scope];
+  if (problem.reason === "invalid-search") return ["providers", problem.id, "search"];
+  if (problem.scope === "providers" && problem.reason === "invalid-state") return ["providers", problem.id, "enabled"];
+  return [problem.scope, problem.id];
 }
 
 // src/metadata.ts
@@ -2319,7 +2410,7 @@ function sourceMetadata(row, provider, capability) {
   const metadata = {};
   let truncated = false, size = 2;
   const present = (value) => value !== void 0 && value !== null;
-  function record2(value) {
+  function record3(value) {
     if (!present(value)) return void 0;
     if (typeof value === "object" && !Array.isArray(value)) {
       try {
@@ -2431,7 +2522,7 @@ function sourceMetadata(row, provider, capability) {
         const name2 = text2(item, 200);
         if (name2) names.push(name2);
       } else {
-        const author = record2(item), name2 = text2(field(author, "name"), 200);
+        const author = record3(item), name2 = text2(field(author, "name"), 200);
         if (!name2) {
           truncated = true;
           continue;
@@ -2452,7 +2543,7 @@ function sourceMetadata(row, provider, capability) {
     put("venue", text2(field(value, "venue")));
     put("doi", doi(field(value, "doi")));
   }
-  const root = record2(row);
+  const root = record3(row);
   if (!root) return { metadata, truncated };
   if (provider !== "nimble" && provider !== "fxtwitter") {
     if (provider === "keenable") {
@@ -2474,7 +2565,7 @@ function sourceMetadata(row, provider, capability) {
         if (entities.length > MAX_ENTITIES) truncated = true;
         let selected = false;
         for (let index = 0; index < Math.min(entities.length, MAX_ENTITIES); index++) {
-          const entity = record2(field(entities, String(index)));
+          const entity = record3(field(entities, String(index)));
           const type = field(entity, "type");
           if (!entity || typeof type !== "string") {
             truncated = true;
@@ -2485,7 +2576,7 @@ function sourceMetadata(row, provider, capability) {
             truncated = true;
             continue;
           }
-          const properties = record2(field(entity, "properties"));
+          const properties = record3(field(entity, "properties"));
           if (!properties) {
             truncated = true;
             continue;
@@ -2512,18 +2603,18 @@ function sourceMetadata(row, provider, capability) {
     put("fetchedAt", date2(field(root, "page_fetched")));
     put("fetchedContentTimestamp", integer(field(root, "fetched_content_timestamp")));
     put("age", text2(field(root, "age"), 100));
-    const thumbnail = record2(field(root, "thumbnail"));
+    const thumbnail = record3(field(root, "thumbnail"));
     put("thumbnailUrl", url(field(thumbnail, "src")));
     put("thumbnailOriginalUrl", url(field(thumbnail, "original")));
     put("thumbnailWidth", integer(field(thumbnail, "width"), 1, MAX_DIMENSION));
     put("thumbnailHeight", integer(field(thumbnail, "height"), 1, MAX_DIMENSION));
     if (capability === "images") {
-      const properties = record2(field(root, "properties"));
+      const properties = record3(field(root, "properties"));
       put("mediaUrl", url(field(properties, "url")));
       put("width", integer(field(properties, "width"), 1, MAX_DIMENSION));
       put("height", integer(field(properties, "height"), 1, MAX_DIMENSION));
     }
-    const video = record2(field(root, "video"));
+    const video = record3(field(root, "video"));
     put("duration", text2(field(video, "duration"), 100));
     put("creator", text2(field(video, "creator"), 200));
     put("publisher", text2(field(video, "publisher")));
@@ -2756,7 +2847,7 @@ function normalized(rows2, limit, id, capability) {
     const row = object(value);
     let url;
     try {
-      url = httpUrl(row.url);
+      url = publicUrl(row.url);
     } catch {
       truncated = true;
       continue;
@@ -2996,7 +3087,7 @@ var SearchAdapter = class {
         throw new SearchError("unsupported-capability", "This provider does not support extraction");
     }
     if (typeof content !== "string") throw new SearchError("extract-failed", "The API did not return page text");
-    const result = { url: httpUrl(row.final_url ?? row.url ?? url), content: content.slice(0, TEXT_LIMIT), truncated: content.length > TEXT_LIMIT };
+    const result = { url: publicUrl(row.final_url ?? row.url ?? url), content: content.slice(0, TEXT_LIMIT), truncated: content.length > TEXT_LIMIT };
     if (typeof row.title === "string") result.title = row.title.slice(0, 1e3);
     const extra = sourceMetadata(row, id);
     Object.assign(result, extra.metadata);
@@ -3086,23 +3177,26 @@ var SearchBroker = class {
     };
   }
   async snapshot() {
-    const section = this.section(), value = object(section.value), providers = object(value.providers ?? {}), config = this.webEntry().options.config ?? {};
+    const section = this.section(), read = readSettings(section.value), config = this.webEntry().options.config ?? {};
+    const raw = section.value;
+    const stored = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
     const searchProvider = typeof config.searchProvider === "string" ? config.searchProvider : process.env.DSH_WEB_SEARCH_PROVIDER ?? "deepseek-official";
     return {
       revision: section.revision,
       searchProvider,
       searchRevision: fingerprint(config),
-      nativeSearchProvider: typeof value.nativeSearchProvider === "string" ? value.nativeSearchProvider : "deepseek-official",
-      tools: value.tools,
+      nativeSearchProvider: typeof stored.nativeSearchProvider === "string" ? stored.nativeSearchProvider : "deepseek-official",
+      tools: read.settings.tools,
+      problems: read.problems,
       entries: await Promise.all(PROVIDERS.map(async (row) => {
-        const provider = providerOf(row.id);
+        const provider = providerOf(row.id), profile = read.settings.providers[row.id];
         return {
           ...provider,
           keyOptional: !!provider.keyOptional,
           supportsKeys: !!provider.env,
           webSearch: provider.webSearch !== false,
-          enabled: Object.hasOwn(providers, row.id) && object(providers[row.id]).enabled === true,
-          search: validateSearchOptions(row.id, Object.hasOwn(providers, row.id) ? object(providers[row.id]).search ?? {} : {}),
+          enabled: profile?.enabled === true,
+          search: profile?.search ?? {},
           ...await this.credential(row.id)
         };
       }))
@@ -3117,6 +3211,16 @@ var SearchBroker = class {
   async dispatch(method, payload) {
     const data = object(payload);
     if (method === "list") return this.snapshot();
+    if (method === "remove-ignored") {
+      const revision2 = this.checkRevision(data.revision);
+      const scope = data.scope === "providers" || data.scope === "tools" ? data.scope : void 0;
+      const reason = PROBLEM_REASONS.find((item) => item === data.reason);
+      if (!scope || !reason || typeof data.id !== "string" || data.id.length > 300) throw new SearchError("invalid-request", "Invalid ignored setting");
+      const problem = readSettings(this.section().value).problems.find((item) => item.scope === scope && item.id === data.id && item.reason === reason);
+      if (!problem) throw new SearchError("settings-changed", "Settings changed in another window");
+      await this.ctx.settings.mutate(NS, [{ op: "unset", path: ignoredPath(problem) }], revision2);
+      return { saved: true };
+    }
     const id = method === "default" && data.provider === "native" ? void 0 : providerOf(data.provider).id;
     if (method === "save-key") {
       if (!id || !providerOf(id).env || typeof data.key !== "string" || !data.key.trim() || data.key.length > 16384 || /[\r\n]/.test(data.key)) throw new SearchError("invalid-request", "Invalid API key");
@@ -3173,7 +3277,7 @@ import { getDshRuntimeVersion } from "@deepseek-ai/dsh-app-boot";
 // src/updates.ts
 import { randomUUID, createHash as createHash2 } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rename, writeFile, lstat } from "node:fs/promises";
-import { join, resolve, relative, isAbsolute } from "node:path";
+import { join as join2, resolve, relative, isAbsolute } from "node:path";
 
 // src/update-download.ts
 function allowedUrl(value) {
@@ -3231,7 +3335,174 @@ async function boundedFetch(url, limit, { fetcher = fetch, signal } = {}) {
 var import_semver = __toESM(require_semver2(), 1);
 import { gunzipSync } from "node:zlib";
 import { brandString } from "@deepseek-ai/dsh-brand";
+
+// src/profile-release.ts
+import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { isMap, isScalar, isSeq, parseDocument } from "yaml";
 var PACKAGE = "@aero123421/dsh-search-providers";
+var ENTRY_ID = "dsh-search-providers";
+var PROVIDER_PREFIX = `${ENTRY_ID}-`;
+var RECORD_PREFIX = `${ENTRY_ID}/`;
+var WEB_ID = "web";
+var WEB_NAME = "@deepseek-ai/dsh-web";
+var NATIVE_FALLBACK = "deepseek-official";
+var HOOK_MARK = "dsh-search-providers-uninstall-hook";
+function replacingPath(profileDir) {
+  return join(profileDir, ".dsh-search-update", "replacing");
+}
+function markReplacing(profileDir) {
+  const filename = replacingPath(profileDir);
+  mkdirSync(dirname(filename), { recursive: true });
+  writeFileSync(filename, "1\n");
+}
+function clearReplacing(profileDir) {
+  try {
+    unlinkSync(replacingPath(profileDir));
+  } catch (error) {
+    if (!error || typeof error !== "object" || error.code !== "ENOENT") throw error;
+  }
+}
+function replacing(profileDir) {
+  return existsSync(replacingPath(profileDir));
+}
+function readJson(filename) {
+  try {
+    return JSON.parse(readFileSync(filename, "utf8"));
+  } catch {
+    return void 0;
+  }
+}
+function stillInstalled(profileDir) {
+  const manifest = readJson(join(profileDir, "package.json"));
+  if (!manifest) return true;
+  const fields2 = ["dependencies", "devDependencies", "optionalDependencies"];
+  return fields2.some((field) => {
+    const section = manifest[field];
+    return !!section && typeof section === "object" && !Array.isArray(section) && Object.hasOwn(section, PACKAGE);
+  });
+}
+function bundleSelected(profileDir) {
+  const manifest = readJson(join(profileDir, "package.json"));
+  const profile = manifest?.dsh;
+  const bundles = profile && typeof profile === "object" && !Array.isArray(profile) ? profile.profile?.bundles : void 0;
+  if (!Array.isArray(bundles)) return true;
+  return bundles.includes(PACKAGE);
+}
+var JS_TAG = { tag: "tag:yaml.org,2002:js", resolve: (value) => value };
+function patchDocument(profileDir) {
+  const filename = join(profileDir, "cordis.patch.yml");
+  if (!existsSync(filename)) return void 0;
+  const document = parseDocument(readFileSync(filename, "utf8"), { customTags: [JS_TAG] });
+  const contents = document.contents;
+  if (document.errors.length > 0 || !isSeq(contents)) return void 0;
+  return { filename, document, items: contents.items };
+}
+function entryDisabled(profileDir) {
+  const parsed = patchDocument(profileDir);
+  if (!parsed) return false;
+  let disabled = false;
+  parsed.items.forEach((item, index) => {
+    if (!isMap(item) || item.has("insert") || parsed.document.getIn([index, "id"]) !== ENTRY_ID) return;
+    disabled = parsed.document.getIn([index, "disabled"]) === true;
+  });
+  return disabled;
+}
+function credentialsPath(profileDir) {
+  return join(profileDir, "..", "..", ".credentials.yaml");
+}
+function restoreSearchProvider(profileDir) {
+  const parsed = patchDocument(profileDir);
+  if (!parsed) return false;
+  const { document, items } = parsed;
+  let native = NATIVE_FALLBACK;
+  let webIndex = -1;
+  items.forEach((item, index) => {
+    if (!isMap(item)) return;
+    const id = document.getIn([index, "id"]);
+    if (id === ENTRY_ID && !item.has("insert")) {
+      const saved = document.getIn([index, "config", "nativeSearchProvider"]);
+      if (typeof saved === "string" && saved && !saved.startsWith(PROVIDER_PREFIX)) native = saved;
+    }
+    if (id === WEB_ID) {
+      const name2 = document.getIn([index, "name"]);
+      if (!name2 || name2 === WEB_NAME) webIndex = index;
+    }
+  });
+  if (webIndex < 0) return false;
+  const current = document.getIn([webIndex, "config", "searchProvider"]);
+  if (typeof current !== "string" || !current.startsWith(PROVIDER_PREFIX)) return false;
+  document.setIn([webIndex, "config", "searchProvider"], native);
+  writeFileSync(parsed.filename, String(document));
+  return true;
+}
+function deleteSavedKeys(profileDir) {
+  const filename = credentialsPath(profileDir);
+  if (!existsSync(filename)) return 0;
+  const document = parseDocument(readFileSync(filename, "utf8"));
+  if (document.errors.length > 0) return 0;
+  const records = document.get("records");
+  if (!isMap(records)) return 0;
+  const keys = records.items.flatMap((pair) => isScalar(pair.key) && typeof pair.key.value === "string" && pair.key.value.startsWith(RECORD_PREFIX) ? [pair.key.value] : []);
+  if (keys.length === 0) return 0;
+  const first = records.items[0];
+  if (first && isScalar(first.key) && typeof first.key.value === "string" && keys.includes(first.key.value)) records.commentBefore = null;
+  for (const key2 of keys) document.deleteIn(["records", key2]);
+  writeFileSync(filename, String(document), { mode: statSync(filename).mode & 511 });
+  return keys.length;
+}
+function releaseOnUnload(profileDir) {
+  if (replacing(profileDir)) return;
+  if (bundleSelected(profileDir) && !entryDisabled(profileDir)) return;
+  restoreSearchProvider(profileDir);
+}
+function releaseOnRemove(profileDir, installed) {
+  if (replacing(profileDir) || (installed ?? stillInstalled(profileDir))) return;
+  restoreSearchProvider(profileDir);
+  deleteSavedKeys(profileDir);
+}
+var pnpmfile = `// ${HOOK_MARK}
+const fs = require('fs')
+const path = require('path')
+const PACKAGE = ${JSON.stringify(PACKAGE)}
+module.exports = {
+  hooks: {
+    afterAllResolved(lockfile) {
+      try {
+        const hook = path.join(process.cwd(), 'node_modules', PACKAGE, 'dist/uninstall-hook.cjs')
+        if (!fs.existsSync(hook)) return lockfile
+        const importers = lockfile && lockfile.importers || {}
+        const listed = Object.values(importers).some((importer) => {
+          if (!importer || typeof importer !== 'object') return false
+          return ['dependencies', 'devDependencies', 'optionalDependencies'].some((field) => {
+            const section = importer[field]
+            return !!section && Object.prototype.hasOwnProperty.call(section, PACKAGE)
+          })
+        })
+        if (!listed) require(hook).releaseOnRemove(process.cwd(), false)
+      } catch {
+        process.stderr.write('${ENTRY_ID}: uninstall cleanup failed\\n')
+      }
+      return lockfile
+    },
+  },
+}
+`;
+function ensureUninstallHook(profileDir) {
+  const filename = join(profileDir, ".pnpmfile.cjs");
+  if (!existsSync(filename)) {
+    writeFileSync(filename, pnpmfile);
+    return "installed";
+  }
+  const current = readFileSync(filename, "utf8");
+  if (!current.includes(HOOK_MARK)) return "skipped";
+  if (current === pnpmfile) return "present";
+  writeFileSync(filename, pnpmfile);
+  return "updated";
+}
+
+// src/updates.ts
+var PACKAGE2 = "@aero123421/dsh-search-providers";
 var REPOSITORY = "Aero123421/dsh-search-providers";
 var RELEASES = `https://github.com/${REPOSITORY}/releases`;
 function inside(directory, file) {
@@ -3241,7 +3512,7 @@ function inside(directory, file) {
 function supportsSource(source, directory, installedVersion) {
   return typeof source === "string" && (/^(?:github:)?Aero123421\/dsh-search-providers(?:#[A-Za-z0-9._/-]+)?$/i.test(source) || /^(?:git\+)?https:\/\/github\.com\/Aero123421\/dsh-search-providers(?:\.git)?(?:#[A-Za-z0-9._/-]+)?$/.test(source) || /^https:\/\/github\.com\/Aero123421\/dsh-search-providers\/releases\/download\/v[^/]+\/aero123421-dsh-search-providers-[^/]+\.tgz$/.test(source) || !!(directory && source.startsWith("file:") && inside(directory, source.slice(5))) || !!(installedVersion && import_semver.default.valid(installedVersion) && source.startsWith("file:") && source.replaceAll("\\", "/").endsWith(`/aero123421-dsh-search-providers-${installedVersion}.tgz`)));
 }
-function record(value) {
+function record2(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("metadata");
   return value;
 }
@@ -3252,7 +3523,7 @@ async function replaceInstalled(manager, spec, enabled, previous, requestId) {
   if (typeof manager.removeBundle !== "function") return void 0;
   let removed;
   try {
-    removed = await manager.removeBundle(PACKAGE);
+    removed = await manager.removeBundle(PACKAGE2);
   } catch (error) {
     const outcome2 = await restoreIfMissing(manager, enabled, previous, void 0);
     if (outcome2) return failedInstall(spec, outcome2);
@@ -3278,7 +3549,7 @@ function failedInstall(spec, code) {
 }
 async function packageInstalled(manager) {
   try {
-    return (await manager.listBundles()).some((row) => row.name === PACKAGE && row.installed);
+    return (await manager.listBundles()).some((row) => row.name === PACKAGE2 && row.installed);
   } catch {
     return void 0;
   }
@@ -3315,7 +3586,7 @@ function packageManifest(bytes) {
     const path = prefix ? `${prefix}/${name2}` : name2;
     if (path === "package/package.json") {
       if (manifest || ![0, 48].includes(header[156]) || size > 65536) throw new Error("metadata");
-      manifest = record(JSON.parse(tar.subarray(offset + 512, offset + 512 + size).toString()));
+      manifest = record2(JSON.parse(tar.subarray(offset + 512, offset + 512 + size).toString()));
     }
     offset += 512 + Math.ceil(size / 512) * 512;
   }
@@ -3345,21 +3616,21 @@ async function json(url, fetcher) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 async function getCandidate(runtime, fetcher = fetch) {
-  const release = record(await json(`https://api.github.com/repos/${REPOSITORY}/releases/latest`, fetcher));
+  const release = record2(await json(`https://api.github.com/repos/${REPOSITORY}/releases/latest`, fetcher));
   const tag = release.tag_name, version = typeof tag === "string" && tag.startsWith("v") ? tag.slice(1) : "";
   if (!Number.isSafeInteger(release.id) || release.draft !== false || release.prerelease !== false || !import_semver.default.valid(version) || import_semver.default.prerelease(version) || release.html_url !== `${RELEASES}/tag/${tag}`) throw new Error("metadata");
-  const manifest = record(await json(`https://raw.githubusercontent.com/${REPOSITORY}/${tag}/package.json`, fetcher));
-  if (manifest.name !== PACKAGE || manifest.version !== version || record(record(manifest.dsh).bundle).patch !== "./cordis.patch.yml") throw new Error("metadata");
-  const peers = record(manifest.peerDependencies);
+  const manifest = record2(await json(`https://raw.githubusercontent.com/${REPOSITORY}/${tag}/package.json`, fetcher));
+  if (manifest.name !== PACKAGE2 || manifest.version !== version || record2(record2(manifest.dsh).bundle).patch !== "./cordis.patch.yml") throw new Error("metadata");
+  const peers = record2(manifest.peerDependencies);
   const ranges = Object.entries(peers).filter(([name2]) => name2 === "@deepseek-ai/dsh" || name2.startsWith("@deepseek-ai/dsh-"));
   if (!ranges.length || !import_semver.default.valid(runtime) || ranges.some(([, range]) => typeof range !== "string" || !import_semver.default.validRange(range) || !import_semver.default.satisfies(runtime, range, { includePrerelease: true }))) throw new Error("incompatible");
   const filename = `aero123421-dsh-search-providers-${version}.tgz`;
   if (!Array.isArray(release.assets)) throw new Error("asset");
   const assets = release.assets;
   const asset = (name2) => {
-    const matches = assets.filter((value2) => record(value2).name === name2);
+    const matches = assets.filter((value2) => record2(value2).name === name2);
     if (matches.length !== 1) throw new Error("asset");
-    const value = record(matches[0]), url = `https://github.com/${REPOSITORY}/releases/download/${tag}/${name2}`;
+    const value = record2(matches[0]), url = `https://github.com/${REPOSITORY}/releases/download/${tag}/${name2}`;
     if (!Number.isSafeInteger(value.id) || Number(value.id) <= 0 || !Number.isSafeInteger(value.size) || Number(value.size) <= 0 || value.browser_download_url !== url) throw new Error("asset");
     return url;
   };
@@ -3385,7 +3656,7 @@ var Updates = class {
     this.running = running;
     this.runtime = runtime;
     this.fetcher = (input, options) => fetcher(input, { ...options, signal: options?.signal ? AbortSignal.any([options.signal, this.abort.signal]) : this.abort.signal });
-    this.profileKey = dir ? createHash2("sha256").update(`${PACKAGE}:${dir}`).digest("hex") : null;
+    this.profileKey = dir ? createHash2("sha256").update(`${PACKAGE2}:${dir}`).digest("hex") : null;
     this.view = { status: "idle", running, profileKey: this.profileKey };
   }
   dispose() {
@@ -3397,12 +3668,12 @@ var Updates = class {
   }
   path() {
     if (!this.dir) throw new Error("management-required");
-    return join(this.dir, ".dsh-search-update", "operation.json");
+    return join2(this.dir, ".dsh-search-update", "operation.json");
   }
   async save() {
     const path = this.path();
-    await mkdir(join(this.dir, ".dsh-search-update"), { recursive: true, mode: 448 });
-    if ((await lstat(join(this.dir, ".dsh-search-update"))).isSymbolicLink()) throw new Error("storage");
+    await mkdir(join2(this.dir, ".dsh-search-update"), { recursive: true, mode: 448 });
+    if ((await lstat(join2(this.dir, ".dsh-search-update"))).isSymbolicLink()) throw new Error("storage");
     const temp = `${path}.${randomUUID()}.tmp`;
     await writeFile(temp, JSON.stringify({ id: this.operation.id, version: this.operation.version, ...this.operation.result ? { result: { bundle: this.operation.result.bundle, application: this.operation.result.application, version: this.operation.result.version, stage: this.operation.result.stage, error: this.operation.result.error ? { code: this.operation.result.error.code } : void 0 } } : {} }), { mode: 384, flag: "wx" });
     await rename(temp, path);
@@ -3410,9 +3681,9 @@ var Updates = class {
   async bundle() {
     if (this.closed) throw new Error("cancelled");
     if (!this.manager || !this.dir || typeof this.manager.listBundles !== "function" || typeof this.manager.installBundle !== "function" || typeof this.manager.waitForInstall !== "function") throw new Error("management-required");
-    const bundle = (await this.manager.listBundles()).find((row) => row.name === PACKAGE);
+    const bundle = (await this.manager.listBundles()).find((row) => row.name === PACKAGE2);
     if (!bundle?.installed || bundle.readOnlyReason || bundle.error) throw new Error(bundle?.readOnlyReason ?? "not-installed");
-    if (!supportsSource(bundle.source, this.dir && join(this.dir, ".dsh-search-update"), bundle.version)) throw new Error("source-unsupported");
+    if (!supportsSource(bundle.source, this.dir && join2(this.dir, ".dsh-search-update"), bundle.version)) throw new Error("source-unsupported");
     if (bundle.source?.startsWith("file:")) {
       const file = await lstat(bundle.source.slice(5)).catch(() => void 0);
       if (!file?.isFile() || file.isSymbolicLink()) throw new Error("source-unsupported");
@@ -3432,13 +3703,13 @@ var Updates = class {
       this.view = { ...this.view, installed: bundle.version ?? "unknown" };
       if (!this.operation) {
         try {
-          const value = record(JSON.parse(await readFile(this.path(), "utf8")));
+          const value = record2(JSON.parse(await readFile(this.path(), "utf8")));
           if (typeof value.id !== "string" || !/^[0-9a-f-]{36}$/.test(value.id) || typeof value.version !== "string" || !import_semver.default.valid(value.version)) throw new Error("journal");
           const operation = { id: value.id, version: value.version };
           if (value.result) {
-            const result = record(value.result);
+            const result = record2(value.result);
             if (!["applied", "restart-required", "overridden", "failed", "cancelled"].includes(String(result.application)) || !["install", "enable", "remove"].includes(String(result.stage))) throw new Error("journal");
-            operation.result = { changed: false, target: PACKAGE, ...result.bundle === PACKAGE ? { bundle: PACKAGE } : {}, application: result.application, stage: result.stage, ...typeof result.version === "string" ? { version: result.version } : {}, ...result.error ? { error: { code: errorCode(record(result.error).code) } } : {} };
+            operation.result = { changed: false, target: PACKAGE2, ...result.bundle === PACKAGE2 ? { bundle: PACKAGE2 } : {}, application: result.application, stage: result.stage, ...typeof result.version === "string" ? { version: result.version } : {}, ...result.error ? { error: { code: errorCode(record2(result.error).code) } } : {} };
           }
           this.operation = operation;
         } catch (error) {
@@ -3466,7 +3737,7 @@ var Updates = class {
     let status = result.application;
     if (result.application === "failed" || ["applied", "restart-required"].includes(result.application) && (result.error || result.packageResult && (result.packageResult.exitCode !== 0 || result.packageResult.timedOut))) status = "failed";
     else if (result.application === "applied" || result.application === "restart-required") {
-      if (result.bundle !== PACKAGE || result.version !== operation.version || installed !== operation.version) status = "unknown";
+      if (result.bundle !== PACKAGE2 || result.version !== operation.version || installed !== operation.version) status = "unknown";
       else status = this.running === operation.version ? "applied" : "restart-required";
     }
     const { reason: _reason, ...previous } = this.view;
@@ -3519,11 +3790,11 @@ var Updates = class {
           const bytes = await boundedFetch(candidate.tarball, 32 * 1024 * 1024, { fetcher: this.fetcher });
           if (createHash2("sha256").update(bytes).digest("hex") !== match[1].toLowerCase()) throw new Error("checksum");
           const manifest = packageManifest(bytes);
-          if (manifest.name !== PACKAGE || manifest.version !== candidate.version || record(record(manifest.dsh).bundle).patch !== "./cordis.patch.yml") throw new Error("metadata");
-          const peers = Object.entries(record(manifest.peerDependencies)).filter(([name2]) => name2 === "@deepseek-ai/dsh" || name2.startsWith("@deepseek-ai/dsh-"));
+          if (manifest.name !== PACKAGE2 || manifest.version !== candidate.version || record2(record2(manifest.dsh).bundle).patch !== "./cordis.patch.yml") throw new Error("metadata");
+          const peers = Object.entries(record2(manifest.peerDependencies)).filter(([name2]) => name2 === "@deepseek-ai/dsh" || name2.startsWith("@deepseek-ai/dsh-"));
           if (!peers.length || peers.some(([, range]) => typeof range !== "string" || !import_semver.default.validRange(range) || !import_semver.default.satisfies(this.runtime, range, { includePrerelease: true }))) throw new Error("incompatible");
-          const directory = await mkdtemp(join(this.dir, ".dsh-search-update", "verified-"));
-          spec = join(directory, candidate.filename);
+          const directory = await mkdtemp(join2(this.dir, ".dsh-search-update", "verified-"));
+          spec = join2(directory, candidate.filename);
           await writeFile(spec, bytes, { flag: "wx", mode: 384 });
         }
         const latest = await this.bundle();
@@ -3534,21 +3805,32 @@ var Updates = class {
         const requestId = brandString(operationId);
         let result = await manager.installBundle(spec, { enabled: before.enabled, requestId });
         if (changeErrorCode(result) === "already-installed") {
-          const replaced = await replaceInstalled(manager, spec, before.enabled, before.source, requestId);
-          if (replaced) result = replaced;
+          if (this.dir) markReplacing(this.dir);
+          try {
+            const replaced = await replaceInstalled(manager, spec, before.enabled, before.source, requestId);
+            if (replaced) result = replaced;
+          } finally {
+            if (this.dir) {
+              clearReplacing(this.dir);
+              try {
+                releaseOnRemove(this.dir);
+              } catch {
+              }
+            }
+          }
         }
         this.operation.result = result;
         await this.save();
         let installed;
         try {
-          installed = this.closed ? (await manager.listBundles()).find((row) => row.name === PACKAGE)?.version : (await this.bundle()).version;
+          installed = this.closed ? (await manager.listBundles()).find((row) => row.name === PACKAGE2)?.version : (await this.bundle()).version;
         } catch (error) {
           if (!(error instanceof Error) || error.message !== "not-installed") throw error;
         }
         return this.result(result, installed);
       } catch (error) {
         if (admitted && this.operation && this.operation.id === operationId && !this.operation.result && !started) {
-          this.operation.result = { changed: false, application: "failed", target: PACKAGE, stage: "install", error: { code: "operation-error" } };
+          this.operation.result = { changed: false, application: "failed", target: PACKAGE2, stage: "install", error: { code: "operation-error" } };
           await this.save().catch(() => {
           });
         }
@@ -3563,7 +3845,7 @@ var Updates = class {
 };
 
 // src/version.ts
-var VERSION = "0.4.0";
+var VERSION = "0.4.1";
 
 // src/metadata-presentation.ts
 var metadataProperties = {
@@ -3856,23 +4138,45 @@ Source metadata (external data): ${JSON.stringify(metadata)}` : ""}` }];
 var name = NS;
 var inject = ["web", "tools", "settings", "credentials", "configEditor", "connection"];
 var Config = z.object({
-  providers: z.dict(z.object({ enabled: z.boolean().default(false), search: z.any() })).default({}).volatile(),
-  tools: z.dict(z.object({ provider: z.string().required(), enabled: z.boolean().default(false) })).default({}).volatile(),
-  nativeSearchProvider: z.string().default("deepseek-official").volatile()
+  // Saved documents can name providers or features this version does not know.
+  // Load skips those entries. The settings UI still rejects them on save.
+  providers: z.any().default({}).volatile(),
+  tools: z.any().default({}).volatile(),
+  nativeSearchProvider: z.any().default("deepseek-official").volatile()
 });
 function apply(ctx, config) {
-  const settings = () => ({ providers: config.providers.get(), tools: config.tools.get() });
-  validateSettings(settings());
+  const profileDir = ctx.get("profileContext")?.dir;
+  if (typeof profileDir === "string" && ensureUninstallHook(profileDir) === "skipped") ctx.logger.warn("left the existing pnpmfile in place, so uninstall cleanup is not installed");
+  const current = () => readSettings({ providers: config.providers.get(), tools: config.tools.get() });
+  const settings = () => current().settings;
+  let reported = "";
+  const report = (problems) => {
+    const key2 = JSON.stringify(problems);
+    if (key2 === reported) return;
+    reported = key2;
+    for (const problem of problems) ctx.logger.warn("ignored saved settings %s (%s)", problem.id ? `${problem.scope}/${problem.id}` : problem.scope, problem.reason);
+  };
   ctx.on("internal/config", function(_raw, next) {
     const resolved = next();
     if (this !== ctx.fiber) return resolved;
-    const candidate = Config(object(resolved));
-    validateSettings({ providers: candidate.providers.get(), tools: candidate.tools.get() });
+    try {
+      report(readSettings(resolved).problems);
+    } catch (error) {
+      ctx.logger.warn("could not read saved search settings: %s", error instanceof Error ? error.message : "invalid");
+    }
     return resolved;
   });
   ctx.effect(() => ctx.settings.configure({ auto: false }, ctx.fiber));
   const updates = new Updates(() => ctx.get("pluginManager"), ctx.get("profileContext")?.dir, VERSION, getDshRuntimeVersion());
   ctx.effect(() => () => updates.dispose());
+  ctx.effect(() => () => {
+    if (typeof profileDir !== "string") return;
+    try {
+      releaseOnUnload(profileDir);
+    } catch (error) {
+      ctx.logger.warn("could not restore the previous search provider: %s", error instanceof Error ? error.message : "failed");
+    }
+  });
   const broker = new SearchBroker(ctx), adapters = /* @__PURE__ */ new Map();
   ctx.effect(() => () => {
     for (const adapter of adapters.values()) adapter.dispose();
@@ -3897,9 +4201,9 @@ function apply(ctx, config) {
   }
   const registrations = /* @__PURE__ */ new Map();
   const refreshTools = () => {
-    const value = settings();
-    validateSettings(value);
-    registerExtraTools(ctx, value, adapters, registrations);
+    const value = current();
+    report(value.problems);
+    registerExtraTools(ctx, value.settings, adapters, registrations);
   };
   refreshTools();
   ctx.on("settings/document-updated", (namespace) => {
@@ -3910,7 +4214,7 @@ function apply(ctx, config) {
     for (const dispose of registrations.values()) dispose();
     registrations.clear();
   });
-  for (const method of ["list", "save-key", "delete-key", "provider", "search-options", "tool", "default", "update-status", "update-check", "update-install"]) {
+  for (const method of ["list", "save-key", "delete-key", "provider", "search-options", "tool", "remove-ignored", "default", "update-status", "update-check", "update-install"]) {
     const endpoint = `${NS}/${method}`;
     ctx.connection.fetch.register({
       path: `/api/${endpoint}`,

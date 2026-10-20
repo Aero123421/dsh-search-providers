@@ -107,6 +107,48 @@ test('Unsupported capability configurations are rejected', () => {
   assert.throws(() => validateSettings({ providers: {}, tools: { papers: { provider: 'brave', enabled: true } } }))
   assert.throws(() => validateSettings({ providers: { unknown: {} }, tools: {} }))
 })
+const privateUrls = [
+  'http://127.0.0.1/secret',
+  'http://169.254.169.254/latest/meta-data',
+  'http://[::1]/secret',
+  'http://localhost/secret',
+  'http://10.1.2.3/secret',
+  'http://192.168.0.10/secret',
+  'http://metadata.google.internal/computeMetadata/v1/',
+]
+test('Search results drop private and metadata URLs', async () => {
+  const adapter = new SearchAdapter({ id: 'exa', enabled: () => true, resolveKey: async () => 'key', transport: async () => Response.json({ results: [
+    ...privateUrls.map(url => ({ url, title: 'hidden' })),
+    { url: 'https://example.com/article', title: 'Example' },
+  ] }) })
+  const result = await adapter.search({ query: 'example' })
+  assert.deepEqual(result.sources.map(source => source.url), ['https://example.com/article'])
+  assert.equal(result.truncated, true)
+  assert.equal(JSON.stringify(result).includes('169.254'), false)
+  assert.equal(JSON.stringify(result).includes('metadata.google.internal'), false)
+})
+test('Extraction refuses a private final URL', async () => {
+  for (const finalUrl of privateUrls) {
+    const adapter = new SearchAdapter({ id: 'exa', enabled: () => true, resolveKey: async () => 'key', transport: async () => Response.json({ results: [{ url: 'https://example.com/article', final_url: finalUrl, text: 'secret' }] }) })
+    await assert.rejects(adapter.extract('https://example.com/article'), error => error.code === 'blocked-url')
+  }
+})
+test('Aborting a request frees its concurrency slot before the request settles', async () => {
+  const gate = new RequestGate(1)
+  const controller = new AbortController()
+  const hung = gate.run(() => new Promise(() => {}), controller.signal)
+  controller.abort()
+  let ran = false
+  await gate.run(async () => { ran = true })
+  assert.equal(ran, true)
+  hung.catch(() => {})
+})
+test('An AbortSignal timeout is a timeout error and caller cancellation is not', async () => {
+  const timeout = new DOMException('The operation was aborted due to timeout', 'TimeoutError')
+  await assert.rejects(jsonRequest(async () => { throw timeout }, 'https://example.com', {}), error => error.code === 'timeout')
+  const caller = AbortSignal.abort(new DOMException('The operation was aborted', 'AbortError'))
+  await assert.rejects(jsonRequest(async () => { throw new DOMException('The operation was aborted', 'AbortError') }, 'https://example.com', {}, caller), error => error.name === 'AbortError' && error.code !== 'timeout')
+})
 test('Unloading the adapter aborts requests and blocks later sends', async () => {
   let ready
   const entered = new Promise(resolve => { ready = resolve })

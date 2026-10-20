@@ -5,6 +5,7 @@ import { UpdateController } from './update-controller.ts'
 import { SearchController, type Connection } from './controller.ts'
 import { providerRoute, type ProviderId } from './catalog.ts'
 import type { ProviderView, Snapshot } from './broker.ts'
+import type { SettingsProblem } from './catalog.ts'
 import { en, ja, zh, type CopyKey } from './locales.ts'
 import { MODES, OPTION_FIELDS, validateSearchOptions, type OptionKey, type SearchOptions } from './search-options.ts'
 import css from './styles.css'
@@ -26,6 +27,18 @@ function useCopy(locale: Locale): Translate {
   useSyncExternalStore(listener => locale.subscribe(listener), () => locale.getSnapshot().revision)
   return locale.bind(COPY_NS)
 }
+function problemCopy(problem: SettingsProblem): CopyKey {
+  if (problem.reason === 'invalid-search') return 'ignoredSearch'
+  if (problem.reason === 'invalid-state') return 'ignoredState'
+  if (!problem.id) return 'ignoredSection'
+  return problem.scope === 'tools' ? 'ignoredTool' : 'ignoredProvider'
+}
+function problemTitle(problem: SettingsProblem, entries: ProviderView[]): string {
+  const known = entries.find(row => row.id === problem.id)?.label
+  if (known && (problem.reason === 'invalid-search' || problem.reason === 'invalid-state')) return known
+  if (!problem.id) return ''
+  return problem.id.length > 80 ? `${problem.id.slice(0, 79)}…` : problem.id
+}
 function errorKey(error: unknown): CopyKey {
   const message = error instanceof Error ? error.message : ''
   if (message.endsWith('/settings-changed')) return 'conflict'
@@ -38,8 +51,8 @@ function KeyDialog({ entry, controller, t, onClose }: { entry: ProviderView; con
   const id = useId()
   async function save(event: React.FormEvent) {
     event.preventDefault(); setBusy(true); setError(undefined)
-    const value = key; setKey('')
-    try { await controller.call('save-key', { provider: entry.id, key: value }); await controller.refresh(); onClose() }
+    const value = key
+    try { await controller.call('save-key', { provider: entry.id, key: value }); setKey(''); await controller.refresh(); onClose() }
     catch (error) { setError(errorKey(error)) } finally { setBusy(false) }
   }
   async function remove() {
@@ -93,7 +106,7 @@ function optionDraft(options: SearchOptions = {}): Partial<Record<OptionKey, str
 function SearchOptionsDialog({ entry, snapshot, controller, t, onClose }: { entry: ProviderView; snapshot: Snapshot; controller: SearchController; t: Translate; onClose(): void }) {
   const [draft, setDraft] = useState(() => optionDraft(entry.search)), [revision, setRevision] = useState(snapshot.revision)
   const [busy, setBusy] = useState(false), [error, setError] = useState<CopyKey>(), [refreshFailed, setRefreshFailed] = useState(false)
-  const id = useId(), fields = OPTION_FIELDS[entry.id]
+  const id = useId(), formId = `${id}-form`, fields = OPTION_FIELDS[entry.id]
   async function refreshRevision() {
     await controller.refresh()
     const current = controller.getSnapshot()
@@ -126,8 +139,18 @@ function SearchOptionsDialog({ entry, snapshot, controller, t, onClose }: { entr
     if (field === 'yearMin' || field === 'yearMax') return 'optionYearHint'
     return `optionHint_${field}` as CopyKey
   }
-  return <Modal open title={`${entry.label} · ${t('searchSettings')}`} closeLabel={t('close')} onClose={() => { if (!busy) onClose() }} className="dsh-search-dialog dsh-search-options-dialog" contentClassName="dsh-search-dialog-content">
-    <form className="dsh-search-options-form" noValidate aria-busy={busy} onSubmit={event => { event.preventDefault(); void save() }}>
+  return <Modal open title={`${entry.label} · ${t('searchSettings')}`} closeLabel={t('close')} onClose={() => { if (!busy) onClose() }} className="dsh-search-dialog dsh-search-options-dialog" contentClassName="dsh-search-dialog-content" footer={<div className="dsh-search-dialog-footer">
+    {error && <p role="alert" className="dsh-search-error">{t(error)}</p>}
+    {error === 'conflict' && <p className="dsh-search-muted">{t('optionsConflictNote')}</p>}
+    {refreshFailed && <p role="alert" className="dsh-search-error">{t('optionsRefreshFailed')} <Button type="button" size="sm" disabled={busy} onClick={() => { setBusy(true); void refreshRevision().finally(() => setBusy(false)) }}>{t('retry')}</Button></p>}
+    {busy && <p role="status" className="dsh-search-muted">{t('saving')}</p>}
+    <div className="dsh-search-actions">
+      <Button type="submit" form={formId} variant="primary" disabled={busy || refreshFailed}>{t('save')}</Button>
+      <Button type="button" variant="outline" disabled={busy || refreshFailed} onClick={() => { void save(true) }}>{t('resetSearchOptions')}</Button>
+      <Button type="button" variant="outline" disabled={busy} onClick={onClose}>{t('cancel')}</Button>
+    </div>
+  </div>}>
+    <form id={formId} className="dsh-search-options-form" noValidate aria-busy={busy} onSubmit={event => { event.preventDefault(); void save() }}>
       <p className="dsh-search-muted">{t('optionsDefaultNote')}</p>
       <p className="dsh-search-muted">{t('optionsBillingNote')}</p>
       {fields.map((field, index) => {
@@ -141,15 +164,6 @@ function SearchOptionsDialog({ entry, snapshot, controller, t, onClose }: { entr
           <p id={`${fieldId}-hint`} className="dsh-search-muted">{t(hint(field))}</p>
         </div>
       })}
-      {error && <p role="alert" className="dsh-search-error">{t(error)}</p>}
-      {error === 'conflict' && <p className="dsh-search-muted">{t('optionsConflictNote')}</p>}
-      {refreshFailed && <p role="alert" className="dsh-search-error">{t('optionsRefreshFailed')} <Button type="button" size="sm" disabled={busy} onClick={() => { setBusy(true); void refreshRevision().finally(() => setBusy(false)) }}>{t('retry')}</Button></p>}
-      {busy && <p role="status" className="dsh-search-muted">{t('saving')}</p>}
-      <div className="dsh-search-actions">
-        <Button type="submit" variant="primary" disabled={busy || refreshFailed}>{t('save')}</Button>
-        <Button type="button" variant="outline" disabled={busy || refreshFailed} onClick={() => { void save(true) }}>{t('resetSearchOptions')}</Button>
-        <Button type="button" variant="outline" disabled={busy} onClick={onClose}>{t('cancel')}</Button>
-      </div>
     </form>
   </Modal>
 }
@@ -186,12 +200,18 @@ export function SearchSettings({ controller, locale, updates }: PageProps) {
     <h2>{t('title')}</h2>
     <p className="dsh-search-note">{t('pricingNote')} <a href="https://api-dashboard.search.brave.com/documentation/resources/help-feedback" target="_blank" rel="noreferrer">{t('bravePricing')}</a></p>
     <p className="dsh-search-note">{t('fallbackNote')}</p>
+    <p className="dsh-search-note">{t('lifecycleNote')}</p>
     <UpdateRow controller={updates} t={t} />
     {state.error && <p role="alert" className="dsh-search-error">{t('loadFailed')} <Button size="sm" onClick={() => { void controller.refresh() }}>{t('retry')}</Button></p>}
     {error && <p role="alert" className="dsh-search-error">{t(error)}</p>}
     {state.status === 'loading' && !snapshot && <div className="dsh-search-loading"><StateDot state="ongoing" size={20} /></div>}
     {defaultDisabled && <p role="alert" className="dsh-search-error">{t('defaultDisabled')}</p>}
     {snapshot && <div className="dsh-search-providers">
+      {snapshot.problems.map(problem => <article key={`${problem.scope}:${problem.reason}:${problem.id}`} className="dsh-search-provider">
+        <div className="dsh-search-provider-head"><span className="dsh-search-name">{problemTitle(problem, snapshot.entries) || t(problemCopy(problem))}</span>
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => { void save('remove-ignored', { scope: problem.scope, id: problem.id, reason: problem.reason }) }}>{t('removeIgnored')}</Button></div>
+        {problemTitle(problem, snapshot.entries) && <p className="dsh-search-muted">{t(problemCopy(problem))}</p>}
+      </article>)}
       <article className="dsh-search-provider">
         <div className="dsh-search-provider-head"><span className="dsh-search-name">{t('native')}</span>{!snapshot.searchProvider.startsWith('dsh-search-providers-') ? <span className="dsh-search-tag">{t('default')}</span>
           : <Button variant="outline" size="sm" disabled={busy} onClick={() => { void save('default', { provider: 'native' }) }}>{t('setDefault')}</Button>}</div>

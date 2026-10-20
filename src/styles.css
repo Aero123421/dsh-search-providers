@@ -16,8 +16,11 @@
 .dsh-search-note a { color: inherit; }
 .dsh-search-error { margin: 0; font-size: 13px; line-height: 20px; color: var(--dsw-alias-state-error-primary); }
 .dsh-search-loading { display: grid; place-items: center; min-height: 120px; }
-.dsh-search-dialog { width: min(520px, 100%); max-height: 100%; min-width: 0; overflow-wrap: anywhere; color: var(--dsw-alias-label-primary); --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2); --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2); }
-.dsh-search-dialog-content { overflow-y: auto; min-height: 0; }
+.dsh-search-dialog { width: min(520px, 100%); max-height: 100%; min-height: 0; min-width: 0; overflow-wrap: anywhere; color: var(--dsw-alias-label-primary); --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2); --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2); }
+.dsh-search-dialog-content { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+.dsh-search-dialog-footer { display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: 100%; min-width: 0; }
+.dsh-search-dialog-footer .dsh-search-actions { justify-content: flex-end; }
+.dsh-search-dialog-footer .dsh-search-muted, .dsh-search-dialog-footer .dsh-search-error { margin: 0; }
 .dsh-search-options-form { display: flex; flex-direction: column; gap: 16px; min-width: 0; font-size: 14px; }
 .dsh-search-options-form > .dsh-search-muted { margin: 0; }
 .dsh-search-option { display: flex; flex-direction: column; gap: 6px; min-width: 0; }

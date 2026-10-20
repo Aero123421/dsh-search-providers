@@ -51,3 +51,66 @@ export function validateSettings(settings: Settings): void {
     if (typeof profile.enabled !== 'boolean' || !provider.capabilities.includes(feature)) throw new SearchError('invalid-request', 'Unsupported capability')
   }
 }
+export const PROBLEM_REASONS = ['unknown-provider', 'unknown-capability', 'unsupported-capability', 'invalid-search', 'invalid-state', 'malformed'] as const
+export type ProblemReason = typeof PROBLEM_REASONS[number]
+/** A saved entry the running plugin will not apply. `id` is empty when the whole section is unreadable. */
+export interface SettingsProblem { scope: 'providers' | 'tools'; id: string; reason: ProblemReason }
+function record(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+/**
+ * Keep known providers and features from a saved document.
+ * Unknown ids, unsupported features, and values that fail the save-time checks are omitted and reported.
+ * This does not delete the saved document.
+ */
+export function readSettings(raw: unknown): { settings: Settings; problems: SettingsProblem[] } {
+  const problems: SettingsProblem[] = [], settings: Settings = { providers: {}, tools: {} }
+  if (!record(raw)) {
+    if (raw !== undefined) problems.push({ scope: 'providers', id: '', reason: 'malformed' })
+    return { settings, problems }
+  }
+  readProviders(raw.providers, settings, problems)
+  readTools(raw.tools, settings, problems)
+  return { settings, problems }
+}
+function readProviders(raw: unknown, settings: Settings, problems: SettingsProblem[]): void {
+  if (raw === undefined) return
+  if (!record(raw)) { problems.push({ scope: 'providers', id: '', reason: 'malformed' }); return }
+  for (const [id, profile] of Object.entries(raw)) {
+    const provider = PROVIDERS.find(row => row.id === id)
+    if (!provider) { problems.push({ scope: 'providers', id, reason: 'unknown-provider' }); continue }
+    if (!record(profile)) { problems.push({ scope: 'providers', id, reason: 'malformed' }); continue }
+    const next: ProviderSettings = {}
+    if (profile.enabled !== undefined) {
+      if (typeof profile.enabled === 'boolean') next.enabled = profile.enabled
+      else problems.push({ scope: 'providers', id, reason: 'invalid-state' })
+    }
+    if (profile.search !== undefined) {
+      try { next.search = validateSearchOptions(provider.id, profile.search) }
+      catch { problems.push({ scope: 'providers', id, reason: 'invalid-search' }) }
+    }
+    settings.providers[provider.id] = next
+  }
+}
+function readTools(raw: unknown, settings: Settings, problems: SettingsProblem[]): void {
+  if (raw === undefined) return
+  if (!record(raw)) { problems.push({ scope: 'tools', id: '', reason: 'malformed' }); return }
+  for (const [id, profile] of Object.entries(raw)) {
+    const capability = CAPABILITIES.find(item => item === id)
+    if (!capability) { problems.push({ scope: 'tools', id, reason: 'unknown-capability' }); continue }
+    if (!record(profile) || typeof profile.provider !== 'string') { problems.push({ scope: 'tools', id, reason: 'malformed' }); continue }
+    const provider = PROVIDERS.find(row => row.id === profile.provider)
+    if (!provider) { problems.push({ scope: 'tools', id, reason: 'unknown-provider' }); continue }
+    const capabilities: readonly Capability[] = provider.capabilities
+    if (!capabilities.includes(capability)) { problems.push({ scope: 'tools', id, reason: 'unsupported-capability' }); continue }
+    if (typeof profile.enabled !== 'boolean') { problems.push({ scope: 'tools', id, reason: 'invalid-state' }); continue }
+    settings.tools[capability] = { provider: provider.id, enabled: profile.enabled }
+  }
+}
+/** Path of one ignored entry. Search and on/off problems remove only that field. */
+export function ignoredPath(problem: SettingsProblem): string[] {
+  if (!problem.id) return [problem.scope]
+  if (problem.reason === 'invalid-search') return ['providers', problem.id, 'search']
+  if (problem.scope === 'providers' && problem.reason === 'invalid-state') return ['providers', problem.id, 'enabled']
+  return [problem.scope, problem.id]
+}
