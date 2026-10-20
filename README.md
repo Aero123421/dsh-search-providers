@@ -16,7 +16,7 @@ DSHを再起動し、「設定 → 検索プロバイダー」を開きます。
 
 表示言語はDSHの言語設定に従います。このプラグインは新しい言語を追加しません。DSH `0.2.1-rc.2` には英語と中国語があり、日本語の表示には [dsh-japanese](https://github.com/Aero123421/dsh-japanese) が必要です。
 
-ビルド済みファイルを含むため、インストール時のビルドは不要です。版を固定する指定例は `github:Aero123421/dsh-search-providers#v0.4.1` です。該当タグの公開後に利用できます。公開済みのタグと配布ファイルは[Release一覧](https://github.com/Aero123421/dsh-search-providers/releases)で確認してください。
+ビルド済みファイルを含むため、インストール時のビルドは不要です。`dist` の依存パスはパッケージマネージャで変わるため、作り直すときは `npm ci` のあとで `npm run build` します。版を固定する指定例は `github:Aero123421/dsh-search-providers#v0.4.1` です。該当タグの公開後に利用できます。公開済みのタグと配布ファイルは[Release一覧](https://github.com/Aero123421/dsh-search-providers/releases)で確認してください。
 
 ## 使い方
 
