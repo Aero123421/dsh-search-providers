@@ -1,11 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { Document, isMap, isScalar, isSeq, parseDocument, type YAMLSeq } from 'yaml'
+import { Document, isMap, isSeq, parseDocument, type YAMLSeq } from 'yaml'
 
 export const PACKAGE = '@aero123421/dsh-search-providers'
 const ENTRY_ID = 'dsh-search-providers'
 const PROVIDER_PREFIX = `${ENTRY_ID}-`
-const RECORD_PREFIX = `${ENTRY_ID}/`
 const WEB_ID = 'web'
 const WEB_NAME = '@deepseek-ai/dsh-web'
 const NATIVE_FALLBACK = 'deepseek-official'
@@ -94,22 +93,6 @@ export function restoreSearchProvider(profileDir: string): boolean {
   writeFileSync(parsed.filename, String(document))
   return true
 }
-/** Remove only this plugin's saved credential records. Other records and references stay. */
-export function deleteSavedKeys(profileDir: string): number {
-  const filename = credentialsPath(profileDir)
-  if (!existsSync(filename)) return 0
-  const document = parseDocument(readFileSync(filename, 'utf8'))
-  if (document.errors.length > 0) return 0
-  const records = document.get('records')
-  if (!isMap(records)) return 0
-  const keys = records.items.flatMap(pair => isScalar(pair.key) && typeof pair.key.value === 'string' && pair.key.value.startsWith(RECORD_PREFIX) ? [pair.key.value] : [])
-  if (keys.length === 0) return 0
-  const first = records.items[0]
-  if (first && isScalar(first.key) && typeof first.key.value === 'string' && keys.includes(first.key.value)) records.commentBefore = null
-  for (const key of keys) document.deleteIn(['records', key])
-  writeFileSync(filename, String(document), { mode: statSync(filename).mode & 0o777 })
-  return keys.length
-}
 /** Host is stopping this plugin. Restore search only when it will not be registered again. Keys stay. */
 export function releaseOnUnload(profileDir: string): void {
   if (replacing(profileDir)) return
@@ -119,11 +102,12 @@ export function releaseOnUnload(profileDir: string): void {
 /** `pnpm remove` is resolving this package away, or an update finished with the package gone.
 * Pass `false` from the pnpm hook: during `afterAllResolved`, package.json still lists the package
 * while the resolved lockfile already omits it. The post-update call omits the argument and reads package.json.
+* Saved keys stay: the credentials file is shared by every profile of the DSH_HOME and the explicit
+* delete in the settings UI is the single removal path.
 */
 export function releaseOnRemove(profileDir: string, installed?: boolean): void {
   if (replacing(profileDir) || (installed ?? stillInstalled(profileDir))) return
   restoreSearchProvider(profileDir)
-  deleteSavedKeys(profileDir)
 }
 const pnpmfile = `// ${HOOK_MARK}
 const fs = require('fs')
