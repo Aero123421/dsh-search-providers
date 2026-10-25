@@ -14,7 +14,7 @@ npm run test:browser
 npm run test:native
 ```
 
-`test:peers` は、インストール済みの `@deepseek-ai/dsh-app-boot` にある起動時の peer 判定で、この package の `@deepseek-ai/dsh*` peer を確認します。あわせて npm の `@deepseek-ai/dsh` を読み、`alpha` dist-tag と公開版の最大が peer 範囲の外なら失敗します。`latest` dist-tag は `0.2.0-rc.2` のままなので、対象には使いません。
+`test:peers` は、インストール済みの `@deepseek-ai/dsh-app-boot` にある起動時の peer 判定で、この package の `@deepseek-ai/dsh*` peer を確認します。あわせて npm の `@deepseek-ai/dsh` を読み、`alpha` dist-tag と公開版の最大が peer 範囲の外なら失敗します。`latest` dist-tag は `0.2.0-rc.2` のままなので、対象には使いません。更新候補の判定は `npm test` の `tests/updates.test.mjs` で本体の規則（`engines.dsh` 優先、未指定時だけ peer、prerelease・不正値を含む）と突き合わせます。DSH の判定が変わるときは、この parity 試験を同じように更新します。
 
 `test:native` はPATH上の `dsh` と `pnpm` を使います。`DSH_HOME`を一時ディレクトリに設定し、実際のWebプロファイルにプラグインを追加します。通常のDSH設定には書き込みません。テスト用APIキーは架空の値で、外部APIへ送信しません。設定画面は、DSH `0.2.1-alpha.2` のサイドバー「Settings」と、`0.2.1-alpha.3` の未ログイン時の「More」（accessible name は Account menu）内の Settings の両方から開きます。
 

@@ -7,7 +7,7 @@ import { SearchAdapter } from './adapters.ts'
 import { searchWithFallback } from './search-fallback.ts'
 import { SearchBroker } from './broker.ts'
 import { NS, PROVIDERS, SearchError, object, providerOf, providerRoute, readSettings, type Settings, type ProviderId, type SettingsProblem } from './catalog.ts'
-import { getDshRuntimeVersion } from '@deepseek-ai/dsh-app-boot'
+import { evaluatePluginCompatibility, getDshRuntimeVersion } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-plugin-manager'
 import { Updates } from './updates.ts'
 import { VERSION } from './version.ts'
@@ -28,6 +28,11 @@ export interface LiveConfig {
   providers: { get(): Settings['providers'] }
   tools: { get(): Settings['tools'] }
 }
+/** Map a published app-boot compatibility result to unmet requirements. app-boot 0.2.1-alpha.2 named them `peers`; rc.2 renamed them to `requirements`. */
+function publishedDshRequirements(issue: { exempted?: boolean; requirements?: Record<string, string>; peers?: Record<string, string> } | undefined): Record<string, string> {
+  if (!issue || issue.exempted === true) return {}
+  return issue.requirements ?? issue.peers ?? {}
+}
 export function apply(ctx: Context, config: LiveConfig): void {
   const profileDir = ctx.get('profileContext')?.dir
   if (typeof profileDir === 'string' && ensureUninstallHook(profileDir) === 'skipped') ctx.logger.warn('left the existing pnpmfile in place, so uninstall cleanup is not installed')
@@ -47,7 +52,13 @@ export function apply(ctx: Context, config: LiveConfig): void {
     return resolved
   })
   ctx.effect(() => ctx.settings.configure({ auto: false }, ctx.fiber))
-  const updates = new Updates(() => ctx.get('pluginManager'), ctx.get('profileContext')?.dir, VERSION, getDshRuntimeVersion())
+  // Delegate the boot-time compatibility decision to the host's published evaluator; updates.ts keeps the same rule as the fallback.
+  const updates = new Updates(() => ctx.get('pluginManager'), ctx.get('profileContext')?.dir, VERSION, getDshRuntimeVersion(), fetch, (manifest, runtime) => {
+    try {
+      // Host-granted exemptions are not published here, so an exempted mismatch stays manual.
+      return publishedDshRequirements(evaluatePluginCompatibility(manifest, {}, runtime))
+    } catch { throw new Error('metadata') }
+  })
   ctx.effect(() => () => updates.dispose())
   ctx.effect(() => () => {
     if (typeof profileDir !== 'string') return
