@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PACKAGE, clearReplacing, credentialsPath, deleteSavedKeys, ensureUninstallHook, markReplacing, releaseOnRemove, releaseOnUnload, restoreSearchProvider } from '../src/profile-release.ts'
+import { PACKAGE, clearReplacing, credentialsPath, ensureUninstallHook, markReplacing, releaseOnRemove, releaseOnUnload, restoreSearchProvider } from '../src/profile-release.ts'
 
 const fakeKey = 'isolated-fixture-not-a-real-key'
 async function profile() {
@@ -37,7 +37,7 @@ records:
 `, { mode: 0o600 })
   return { root, dir, remove: () => rm(root, { recursive: true, force: true }) }
 }
-test('Uninstall restores the previous search provider and deletes only this plugin’s keys', async () => {
+test('Uninstall restores the previous search provider and keeps the shared keys', async () => {
   const home = await profile()
   const manifest = JSON.parse(await readFile(join(home.dir, 'package.json'), 'utf8'))
   delete manifest.dependencies[PACKAGE]
@@ -49,7 +49,7 @@ test('Uninstall restores the previous search provider and deletes only this plug
   assert.match(patch, /searchProvider: deepseek-official/)
   assert.match(patch, /fetchProvider: http/)
   assert.doesNotMatch(patch, /dsh-search-providers-exa/)
-  assert.equal(credentials.includes(fakeKey), false)
+  assert.equal(credentials.includes(fakeKey), true)
   assert.match(credentials, /other-plugin\/account/)
   assert.match(credentials, /OTHER_ENV: keep-me/)
   await home.remove()
@@ -68,7 +68,9 @@ test('An update in progress keeps the search provider and the saved keys', async
   assert.equal(credentials.includes(fakeKey), true)
   clearReplacing(home.dir)
   releaseOnRemove(home.dir)
-  assert.equal((await readFile(credentialsPath(home.dir), 'utf8')).includes(fakeKey), false)
+  const after = await readFile(credentialsPath(home.dir), 'utf8')
+  assert.equal(after.includes(fakeKey), true)
+  assert.match(await readFile(join(home.dir, 'cordis.patch.yml'), 'utf8'), /searchProvider: deepseek-official/)
   await home.remove()
 })
 test('Turning the plugin off restores search and keeps saved keys', async () => {
@@ -89,8 +91,6 @@ test('Turning the plugin off restores search and keeps saved keys', async () => 
   assert.match(patch, /searchProvider: deepseek\n/)
   assert.match(patch, /fetchProvider: http/)
   assert.equal(credentials.includes(fakeKey), true)
-  assert.equal(deleteSavedKeys(home.dir), 1)
-  assert.equal((await readFile(credentialsPath(home.dir), 'utf8')).includes(fakeKey), false)
   releaseOnUnload(home.dir)
   assert.match(await readFile(join(home.dir, 'cordis.patch.yml'), 'utf8'), /searchProvider: deepseek\n/)
   await home.remove()
@@ -128,7 +128,37 @@ test('pnpm resolution still lists the package in package.json when the lockfile 
   const patch = await readFile(join(home.dir, 'cordis.patch.yml'), 'utf8')
   assert.match(patch, /searchProvider: deepseek-official/)
   assert.match(patch, /fetchProvider: http/)
-  assert.equal((await readFile(credentialsPath(home.dir), 'utf8')).includes(fakeKey), false)
+  assert.equal((await readFile(credentialsPath(home.dir), 'utf8')).includes(fakeKey), true)
+  await home.remove()
+})
+test('Removing the plugin from one profile keeps the shared keys of a sibling profile', async () => {
+  const home = await profile()
+  const other = join(home.root, 'profiles', 'other')
+  await mkdir(other, { recursive: true })
+  await writeFile(join(other, 'package.json'), JSON.stringify({
+    dependencies: { [PACKAGE]: 'file:plugin.tgz' },
+    dsh: { profile: { bundles: [PACKAGE] } },
+  }))
+  await writeFile(join(other, 'cordis.patch.yml'), `- id: dsh-search-providers
+  config:
+    nativeSearchProvider: deepseek-official
+- id: web
+  name: "@deepseek-ai/dsh-web"
+  config:
+    searchProvider: dsh-search-providers-exa
+    fetchProvider: http
+`)
+  releaseOnRemove(home.dir, false)
+  const removedPatch = await readFile(join(home.dir, 'cordis.patch.yml'), 'utf8')
+  const siblingPatch = await readFile(join(other, 'cordis.patch.yml'), 'utf8')
+  const credentials = await readFile(credentialsPath(other), 'utf8')
+  assert.match(removedPatch, /searchProvider: deepseek-official/)
+  assert.doesNotMatch(removedPatch, /dsh-search-providers-exa/)
+  assert.match(siblingPatch, /dsh-search-providers-exa/)
+  assert.equal(credentialsPath(other), credentialsPath(home.dir))
+  assert.equal(credentials.includes(fakeKey), true)
+  assert.match(credentials, /other-plugin\/account/)
+  assert.match(credentials, /OTHER_ENV: keep-me/)
   await home.remove()
 })
 test('An update marker blocks cleanup even when the lockfile has dropped the package', async () => {

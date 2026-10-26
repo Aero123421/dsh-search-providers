@@ -3337,13 +3337,12 @@ import { gunzipSync } from "node:zlib";
 import { brandString } from "@deepseek-ai/dsh-brand";
 
 // src/profile-release.ts
-import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { isMap, isScalar, isSeq, parseDocument } from "yaml";
+import { isMap, isSeq, parseDocument } from "yaml";
 var PACKAGE = "@aero123421/dsh-search-providers";
 var ENTRY_ID = "dsh-search-providers";
 var PROVIDER_PREFIX = `${ENTRY_ID}-`;
-var RECORD_PREFIX = `${ENTRY_ID}/`;
 var WEB_ID = "web";
 var WEB_NAME = "@deepseek-ai/dsh-web";
 var NATIVE_FALLBACK = "deepseek-official";
@@ -3408,9 +3407,6 @@ function entryDisabled(profileDir) {
   });
   return disabled;
 }
-function credentialsPath(profileDir) {
-  return join(profileDir, "..", "..", ".credentials.yaml");
-}
 function restoreSearchProvider(profileDir) {
   const parsed = patchDocument(profileDir);
   if (!parsed) return false;
@@ -3436,21 +3432,6 @@ function restoreSearchProvider(profileDir) {
   writeFileSync(parsed.filename, String(document));
   return true;
 }
-function deleteSavedKeys(profileDir) {
-  const filename = credentialsPath(profileDir);
-  if (!existsSync(filename)) return 0;
-  const document = parseDocument(readFileSync(filename, "utf8"));
-  if (document.errors.length > 0) return 0;
-  const records = document.get("records");
-  if (!isMap(records)) return 0;
-  const keys = records.items.flatMap((pair) => isScalar(pair.key) && typeof pair.key.value === "string" && pair.key.value.startsWith(RECORD_PREFIX) ? [pair.key.value] : []);
-  if (keys.length === 0) return 0;
-  const first = records.items[0];
-  if (first && isScalar(first.key) && typeof first.key.value === "string" && keys.includes(first.key.value)) records.commentBefore = null;
-  for (const key2 of keys) document.deleteIn(["records", key2]);
-  writeFileSync(filename, String(document), { mode: statSync(filename).mode & 511 });
-  return keys.length;
-}
 function releaseOnUnload(profileDir) {
   if (replacing(profileDir)) return;
   if (bundleSelected(profileDir) && !entryDisabled(profileDir)) return;
@@ -3459,7 +3440,6 @@ function releaseOnUnload(profileDir) {
 function releaseOnRemove(profileDir, installed) {
   if (replacing(profileDir) || (installed ?? stillInstalled(profileDir))) return;
   restoreSearchProvider(profileDir);
-  deleteSavedKeys(profileDir);
 }
 var pnpmfile = `// ${HOOK_MARK}
 const fs = require('fs')
