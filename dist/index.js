@@ -3714,6 +3714,7 @@ var Updates = class {
   fail(error, status = "failed", requirements) {
     const reason = error instanceof Error ? error.message : "operation-error";
     const known = ["management-required", "unaddressable", "not-installed", "source-unsupported", "metadata", "metadata-size", "incompatible", "asset", "checksum", "redirect", "size", "storage", "cancelled", "candidate-changed", "settings-changed", "result-unknown", "invalid-request", "journal", "release-unavailable", "network"];
+    if (requirements === void 0 && error instanceof Error && "requirements" in error) requirements = error.requirements;
     const { requirements: stale, ...previous } = this.view;
     this.view = { ...previous, status, reason: known.includes(reason) ? reason : "operation-error", ...requirements ? { requirements } : {} };
     return this.view;

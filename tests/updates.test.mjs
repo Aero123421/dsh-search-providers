@@ -74,6 +74,18 @@ test('an unmet engines.dsh release surfaces the needed range before any install'
   assert.deepEqual(checked.requirements, { 'engines.dsh': '>=0.2.2 <0.3.0-0' })
   assert.equal(calls.length, 0)
 })
+test('an install-time compatibility recheck keeps the unmet runtime requirement visible', async t => {
+  let evaluations = 0
+  const requirements = { 'engines.dsh': '>=0.2.2 <0.3.0-0' }
+  const { updates, calls } = await fixture(t, { evaluate: () => ++evaluations === 1 ? {} : requirements })
+  const checked = await updates.check()
+  assert.equal(checked.status, 'available')
+  const result = await updates.install(checked.candidate.id, randomUUID(), updates.profileKey)
+  assert.equal(result.status, 'failed')
+  assert.equal(result.reason, 'incompatible')
+  assert.deepEqual(result.requirements, requirements)
+  assert.equal(calls.length, 0)
+})
 test('the host-substituted evaluator decides instead of the local rule', async t => {
   const asked = []
   const accepted = await fixture(t, { evaluate: (manifestValue, runtimeValue) => { asked.push([runtimeValue, manifestValue.name]); return {} } })
