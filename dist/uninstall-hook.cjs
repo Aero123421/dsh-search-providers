@@ -49,7 +49,7 @@ var require_identity = __commonJS({
     var isDocument = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === DOC;
     var isMap2 = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === MAP;
     var isPair = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === PAIR;
-    var isScalar2 = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === SCALAR;
+    var isScalar = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === SCALAR;
     var isSeq2 = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === SEQ;
     function isCollection(node) {
       if (node && typeof node === "object")
@@ -71,7 +71,7 @@ var require_identity = __commonJS({
         }
       return false;
     }
-    var hasAnchor = (node) => (isScalar2(node) || isCollection(node)) && !!node.anchor;
+    var hasAnchor = (node) => (isScalar(node) || isCollection(node)) && !!node.anchor;
     exports2.ALIAS = ALIAS;
     exports2.DOC = DOC;
     exports2.MAP = MAP;
@@ -86,7 +86,7 @@ var require_identity = __commonJS({
     exports2.isMap = isMap2;
     exports2.isNode = isNode;
     exports2.isPair = isPair;
-    exports2.isScalar = isScalar2;
+    exports2.isScalar = isScalar;
     exports2.isSeq = isSeq2;
   }
 });
@@ -5631,7 +5631,7 @@ var require_cst = __commonJS({
     var FLOW_END = "";
     var SCALAR = "";
     var isCollection = (token) => !!token && "items" in token;
-    var isScalar2 = (token) => !!token && (token.type === "scalar" || token.type === "single-quoted-scalar" || token.type === "double-quoted-scalar" || token.type === "block-scalar");
+    var isScalar = (token) => !!token && (token.type === "scalar" || token.type === "single-quoted-scalar" || token.type === "double-quoted-scalar" || token.type === "block-scalar");
     function prettyToken(token) {
       switch (token) {
         case BOM:
@@ -5715,7 +5715,7 @@ var require_cst = __commonJS({
     exports2.FLOW_END = FLOW_END;
     exports2.SCALAR = SCALAR;
     exports2.isCollection = isCollection;
-    exports2.isScalar = isScalar2;
+    exports2.isScalar = isScalar;
     exports2.prettyToken = prettyToken;
     exports2.tokenType = tokenType;
   }
@@ -7370,7 +7370,6 @@ __export(profile_release_exports, {
   PACKAGE: () => PACKAGE,
   clearReplacing: () => clearReplacing,
   credentialsPath: () => credentialsPath,
-  deleteSavedKeys: () => deleteSavedKeys,
   ensureUninstallHook: () => ensureUninstallHook,
   markReplacing: () => markReplacing,
   releaseOnRemove: () => releaseOnRemove,
@@ -7387,7 +7386,6 @@ var import_yaml = __toESM(require_dist(), 1);
 var PACKAGE = "@aero123421/dsh-search-providers";
 var ENTRY_ID = "dsh-search-providers";
 var PROVIDER_PREFIX = `${ENTRY_ID}-`;
-var RECORD_PREFIX = `${ENTRY_ID}/`;
 var WEB_ID = "web";
 var WEB_NAME = "@deepseek-ai/dsh-web";
 var NATIVE_FALLBACK = "deepseek-official";
@@ -7480,21 +7478,6 @@ function restoreSearchProvider(profileDir) {
   (0, import_node_fs.writeFileSync)(parsed.filename, String(document));
   return true;
 }
-function deleteSavedKeys(profileDir) {
-  const filename = credentialsPath(profileDir);
-  if (!(0, import_node_fs.existsSync)(filename)) return 0;
-  const document = (0, import_yaml.parseDocument)((0, import_node_fs.readFileSync)(filename, "utf8"));
-  if (document.errors.length > 0) return 0;
-  const records = document.get("records");
-  if (!(0, import_yaml.isMap)(records)) return 0;
-  const keys = records.items.flatMap((pair) => (0, import_yaml.isScalar)(pair.key) && typeof pair.key.value === "string" && pair.key.value.startsWith(RECORD_PREFIX) ? [pair.key.value] : []);
-  if (keys.length === 0) return 0;
-  const first = records.items[0];
-  if (first && (0, import_yaml.isScalar)(first.key) && typeof first.key.value === "string" && keys.includes(first.key.value)) records.commentBefore = null;
-  for (const key of keys) document.deleteIn(["records", key]);
-  (0, import_node_fs.writeFileSync)(filename, String(document), { mode: (0, import_node_fs.statSync)(filename).mode & 511 });
-  return keys.length;
-}
 function releaseOnUnload(profileDir) {
   if (replacing(profileDir)) return;
   if (bundleSelected(profileDir) && !entryDisabled(profileDir)) return;
@@ -7503,7 +7486,6 @@ function releaseOnUnload(profileDir) {
 function releaseOnRemove(profileDir, installed) {
   if (replacing(profileDir) || (installed ?? stillInstalled(profileDir))) return;
   restoreSearchProvider(profileDir);
-  deleteSavedKeys(profileDir);
 }
 var pnpmfile = `// ${HOOK_MARK}
 const fs = require('fs')
@@ -7549,7 +7531,6 @@ function ensureUninstallHook(profileDir) {
   PACKAGE,
   clearReplacing,
   credentialsPath,
-  deleteSavedKeys,
   ensureUninstallHook,
   markReplacing,
   releaseOnRemove,
