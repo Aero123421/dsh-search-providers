@@ -173,7 +173,7 @@ function UpdateRow({ controller, t }: { controller: UpdateController; t: Transla
   const busy = !view.profileKey || view.status === 'checking' || view.status === 'installing'
   return <div className="dsh-search-update">
     <p>{t('updateRunning')}: {view.running}{view.installed && view.installed !== view.running ? ` · ${t('updateInstalled')}: ${view.installed}` : ''}</p>
-    <p role="status">{t(`update_${view.status}`)}{view.reason && <span> · {t('updateReason')}: {t((`updateReason_${view.reason}` in en ? `updateReason_${view.reason}` : 'updateReason_other') as CopyKey)}</span>}{view.stage && <span> · {t('updateStage')}: {view.stage}</span>}</p>
+    <p role="status">{t(`update_${view.status}`)}{view.reason && <span> · {t('updateReason')}: {t((`updateReason_${view.reason}` in en ? `updateReason_${view.reason}` : 'updateReason_other') as CopyKey)}</span>}{view.requirements && <span> · {Object.entries(view.requirements).map(([field, range]) => `${field} ${range}`).join(' · ')}</span>}{view.stage && <span> · {t('updateStage')}: {view.stage}</span>}</p>
     {view.checkedAt && <p className="dsh-search-muted">{t('updateChecked')}: {new Date(view.checkedAt).toLocaleString()}</p>}
     {view.candidate && view.status === 'available' && <><p>{view.running} → {view.candidate.version} · DSH {view.candidate.runtime}</p><p className="dsh-search-update-notes">{view.candidate.notes}</p><p className="dsh-search-muted">{t('updatePin')}</p></>}
     <div className="dsh-search-actions">
