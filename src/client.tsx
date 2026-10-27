@@ -3,9 +3,10 @@ import type { ComponentType } from 'react'
 import { Button, Input, Modal, Switch, StateDot, IconSearchOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { UpdateController } from './update-controller.ts'
 import { SearchController, type Connection } from './controller.ts'
-import { providerRoute, type ProviderId } from './catalog.ts'
+import { CAPABILITIES, providerRoute, type ProviderId } from './catalog.ts'
 import type { ProviderView, Snapshot } from './broker.ts'
 import type { SettingsProblem } from './catalog.ts'
+import { problemCopyKey, problemHeading } from './problem-copy.ts'
 import { en, ja, zh, type CopyKey } from './locales.ts'
 import { MODES, OPTION_FIELDS, validateSearchOptions, type OptionKey, type SearchOptions } from './search-options.ts'
 import css from './styles.css'
@@ -27,17 +28,10 @@ function useCopy(locale: Locale): Translate {
   useSyncExternalStore(listener => locale.subscribe(listener), () => locale.getSnapshot().revision)
   return locale.bind(COPY_NS)
 }
-function problemCopy(problem: SettingsProblem): CopyKey {
-  if (problem.reason === 'invalid-search') return 'ignoredSearch'
-  if (problem.reason === 'invalid-state') return 'ignoredState'
-  if (!problem.id) return 'ignoredSection'
-  return problem.scope === 'tools' ? 'ignoredTool' : 'ignoredProvider'
-}
-function problemTitle(problem: SettingsProblem, entries: ProviderView[]): string {
-  const known = entries.find(row => row.id === problem.id)?.label
-  if (known && (problem.reason === 'invalid-search' || problem.reason === 'invalid-state')) return known
-  if (!problem.id) return ''
-  return problem.id.length > 80 ? `${problem.id.slice(0, 79)}…` : problem.id
+function problemTitle(problem: SettingsProblem, entries: ProviderView[], t: Translate): string {
+  const providerLabel = entries.find(row => row.id === problem.id)?.label
+  const toolLabel = problem.scope === 'tools' && (CAPABILITIES as readonly string[]).includes(problem.id) ? t(problem.id as CopyKey) : undefined
+  return problemHeading(problem, providerLabel, toolLabel)
 }
 function errorKey(error: unknown): CopyKey {
   const message = error instanceof Error ? error.message : ''
@@ -208,9 +202,9 @@ export function SearchSettings({ controller, locale, updates }: PageProps) {
     {defaultDisabled && <p role="alert" className="dsh-search-error">{t('defaultDisabled')}</p>}
     {snapshot && <div className="dsh-search-providers">
       {snapshot.problems.map(problem => <article key={`${problem.scope}:${problem.reason}:${problem.id}`} className="dsh-search-provider">
-        <div className="dsh-search-provider-head"><span className="dsh-search-name">{problemTitle(problem, snapshot.entries) || t(problemCopy(problem))}</span>
+        <div className="dsh-search-provider-head"><span className="dsh-search-name">{problemTitle(problem, snapshot.entries, t) || t(problemCopyKey(problem))}</span>
           <Button variant="outline" size="sm" disabled={busy} onClick={() => { void save('remove-ignored', { scope: problem.scope, id: problem.id, reason: problem.reason }) }}>{t('removeIgnored')}</Button></div>
-        {problemTitle(problem, snapshot.entries) && <p className="dsh-search-muted">{t(problemCopy(problem))}</p>}
+        {problemTitle(problem, snapshot.entries, t) && <p className="dsh-search-muted">{t(problemCopyKey(problem))}</p>}
       </article>)}
       <article className="dsh-search-provider">
         <div className="dsh-search-provider-head"><span className="dsh-search-name">{t('native')}</span>{!snapshot.searchProvider.startsWith('dsh-search-providers-') ? <span className="dsh-search-tag">{t('default')}</span>
