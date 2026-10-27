@@ -100,8 +100,20 @@ test('A failed page extraction is an error even when the API returns 200', async
   await assert.rejects(adapter.extract(fixture.url))
 })
 test('Extraction rejects local and credential-bearing URLs', () => {
-  for (const url of ['http://localhost/', 'http://127.1/', 'http://169.254.169.254/', 'http://10.1.2.3/', 'http://[::1]/', 'http://user:pass@example.com/', 'file:///etc/passwd']) assert.throws(() => publicUrl(url))
+  for (const url of ['http://localhost/', 'http://127.1/', 'http://169.254.169.254/', 'http://10.1.2.3/', 'http://[::1]/', 'http://user:pass@example.com/', 'file:///etc/passwd', 'http://2130706433/', 'http://0x7f000001/', 'http://224.0.0.1/', 'http://100.64.0.1/', 'http://198.18.0.1/', 'http://169.254.169.254.nip.io/latest/meta-data', 'http://127.0.0.1.sslip.io/', 'http://10.0.0.1.xip.io/']) assert.throws(() => publicUrl(url), error => error.code === 'blocked-url' || error.code === 'invalid-request', url)
   assert.equal(publicUrl('https://example.com/'), 'https://example.com/')
+  assert.equal(publicUrl('https://example.nip.io/'), 'https://example.nip.io/')
+})
+test('Public hostnames that only start like a private address stay requestable', () => {
+  for (const url of ['https://10.com/', 'https://224.com/', 'https://0.com/', 'https://127.net/', 'https://192.168.com/', 'https://169.254.com/', 'https://172.16.com/', 'https://100.64.com/', 'https://198.18.com/', 'https://10.0.0.1.example.com/']) assert.equal(publicUrl(url), url)
+})
+test('Keenable extraction sends a public lookalike hostname and still refuses a private address', async () => {
+  const sent = []
+  const adapter = new SearchAdapter({ id: 'keenable', enabled: () => true, resolveKey: async () => undefined, transport: async url => { sent.push(String(url)); return Response.json({ url: 'https://10.com/docs', content: 'Page text' }) } })
+  assert.equal((await adapter.extract('https://10.com/docs')).content, 'Page text')
+  assert.match(sent[0], /^https:\/\/api\.keenable\.ai\/v1\/fetch\/public\?/)
+  assert.match(sent[0], /url=https%3A%2F%2F10\.com%2Fdocs/)
+  await assert.rejects(adapter.extract('http://10.0.0.1/secret'), error => error.code === 'blocked-url' && sent.length === 1)
 })
 test('Unsupported capability configurations are rejected', () => {
   assert.throws(() => validateSettings({ providers: {}, tools: { papers: { provider: 'brave', enabled: true } } }))

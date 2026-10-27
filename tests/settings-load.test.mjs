@@ -1,9 +1,19 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Config } from '../src/index.ts'
+import { Config, responseCode } from '../src/index.ts'
+import { SearchError } from '../src/catalog.ts'
 import { ignoredPath, readSettings, validateSettings } from '../src/catalog.ts'
 
 const kept = (value) => readSettings(value)
+test('A settings revision conflict stays settings-changed on the settings API', () => {
+  const conflict = Object.assign(new Error('settings namespace "dsh-search-providers" changed since it was read (expected revision 1, now 2)'), { name: 'SettingsConflictError', code: 'SETTINGS_CONFLICT', expected: 1, actual: 2 })
+  assert.equal(responseCode(conflict), 'settings-changed')
+  assert.equal(responseCode(Object.assign(new Error('changed'), { code: 'SETTINGS_CONFLICT' })), 'settings-changed')
+  assert.equal(responseCode(new SearchError('missing-key', 'Save an API key first')), 'missing-key')
+  assert.equal(responseCode(new Error('busy')), 'busy')
+  assert.equal(responseCode(new Error('profile-changed')), 'profile-changed')
+  assert.equal(responseCode(new Error('nope')), 'unavailable')
+})
 test('Loading skips unknown providers and features', () => {
   const read = kept({
     providers: { keenable: { enabled: true }, 'not-a-provider': { enabled: true } },

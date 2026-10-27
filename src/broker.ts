@@ -109,19 +109,31 @@ export class SearchBroker {
       if (typeof data.searchRevision !== 'string' || snapshot.searchRevision !== data.searchRevision) throw new SearchError('settings-changed', 'The search provider changed')
       if (id && !snapshot.entries.find(row => row.id === id)?.enabled) throw new SearchError('provider-disabled', 'Enable the provider first')
       let native = snapshot.nativeSearchProvider
+      let remember = false
       if (!snapshot.searchProvider.startsWith(`${NS}-`)) {
         native = snapshot.searchProvider
+        const changed = native !== snapshot.nativeSearchProvider
         await this.ctx.settings.update(NS, { nativeSearchProvider: native }, revision)
+        remember = changed
       }
       const selection = id ? providerRoute(id) : native
       // Edit the owning web configuration while preserving fetchProvider and unrelated fields.
       // ConfigEditor works with both ordinary alpha.2 fields and rc.2 volatile fields.
-      await this.ctx.configEditor.edit(entry, current => {
-        if (fingerprint(current) !== snapshot.searchRevision) throw new SearchError('settings-changed', 'The web configuration changed')
-        const providers = object(object(this.section().value).providers ?? {})
-        if (id && (!Object.hasOwn(providers, id) || object(providers[id]).enabled !== true)) throw new SearchError('provider-disabled', 'Enable the provider first')
-        return { ...current, searchProvider: selection }
-      })
+      // The native provider is already saved. Put it back when this edit does not stick.
+      try {
+        await this.ctx.configEditor.edit(entry, current => {
+          if (fingerprint(current) !== snapshot.searchRevision) throw new SearchError('settings-changed', 'The web configuration changed')
+          const providers = object(object(this.section().value).providers ?? {})
+          if (id && (!Object.hasOwn(providers, id) || object(providers[id]).enabled !== true)) throw new SearchError('provider-disabled', 'Enable the provider first')
+          return { ...current, searchProvider: selection }
+        })
+      } catch (error) {
+        if (remember) {
+          try { await this.ctx.settings.update(NS, { nativeSearchProvider: snapshot.nativeSearchProvider }, this.section().revision) }
+          catch { /* The web edit failed first. Keep that error if the restore also fails. */ }
+        }
+        throw error
+      }
     } else throw new SearchError('invalid-request', 'Unknown operation')
     return { saved: true }
   }

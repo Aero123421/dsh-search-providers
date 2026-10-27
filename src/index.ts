@@ -33,6 +33,18 @@ function publishedDshRequirements(issue: { exempted?: boolean; requirements?: Re
   if (!issue || issue.exempted === true) return {}
   return issue.requirements ?? issue.peers ?? {}
 }
+function settingsConflict(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const value = error as { name?: unknown; code?: unknown }
+  return value.name === 'SettingsConflictError' || value.code === 'SETTINGS_CONFLICT'
+}
+/** Wire code for a settings RPC failure. Settings conflicts keep the conflict the page already understands. */
+export function responseCode(error: unknown): string {
+  if (error instanceof SearchError) return error.code
+  if (settingsConflict(error)) return 'settings-changed'
+  if (error instanceof Error && (error.message === 'busy' || error.message === 'profile-changed')) return error.message
+  return 'unavailable'
+}
 export function apply(ctx: Context, config: LiveConfig): void {
   const profileDir = ctx.get('profileContext')?.dir
   if (typeof profileDir === 'string' && ensureUninstallHook(profileDir) === 'skipped') ctx.logger.warn('left the existing pnpmfile in place, so uninstall cleanup is not installed')
@@ -106,7 +118,7 @@ export function apply(ctx: Context, config: LiveConfig): void {
           return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } }, { headers: { 'cache-control': 'no-store' } })
         } catch (error) {
           if (rpcId === undefined) return new Response('invalid request', { status: 400 })
-          const code = error instanceof SearchError ? error.code : error instanceof Error && ['busy', 'profile-changed'].includes(error.message) ? error.message : 'unavailable'
+          const code = responseCode(error)
           return Response.json({ type: 'server-response', rpcId, result: { ok: false, error: { code: `${NS}/${code}`, message: code, details: {} } } }, { headers: { 'cache-control': 'no-store' } })
         }
       },
