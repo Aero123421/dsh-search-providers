@@ -117,7 +117,7 @@ test('Invalid dates, numeric strings, unsafe counts, dimensions and DOI are omit
 })
 
 test('Unsafe, malformed, credential-bearing and oversized URLs are never shortened into usable links', () => {
-  for (const bad of ['javascript:alert(1)', 'data:image/png,abcd', 'file:///etc/passwd', '//example.org/a.jpg', 'https://user:password@example.org/a.jpg', 'https://example.org/\nimage.jpg', 'https://example.org/' + 'a'.repeat(2048), 123, { url: 'https://example.org/' }]) {
+  for (const bad of ['javascript:alert(1)', 'data:image/png,abcd', 'file:///etc/passwd', '//example.org/a.jpg', 'https://user:password@example.org/a.jpg', 'https://example.org/\nimage.jpg', 'https://example.org/' + 'a'.repeat(2048), 'http://127.0.0.1/secret.pdf', 'http://169.254.169.254/latest/meta-data', 'http://10.1.2.3/a.pdf', 'http://192.168.0.1/x.jpg', 'http://172.16.0.1/a.pdf', 'http://localhost/a.pdf', 'http://[::1]/a.pdf', 'https://files.internal/a.pdf', 123, { url: 'https://example.org/' }]) {
     assert.deepEqual(sourceMetadata({ pdf_url: bad }, 'tinyfish', 'papers'), { metadata: {}, truncated: true })
     assert.deepEqual(sourceMetadata({ properties: { url: bad }, thumbnail: { src: bad } }, 'brave', 'images'), { metadata: {}, truncated: true })
   }

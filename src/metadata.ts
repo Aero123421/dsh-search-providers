@@ -1,4 +1,5 @@
 import type { Capability, ProviderId } from './catalog.ts'
+import { publicUrl } from './http.ts'
 
 /** Validated optional source fields, not an upstream payload or an instruction channel. */
 export interface SourceMetadata {
@@ -108,9 +109,9 @@ export function sourceMetadata(row: Record<string, unknown>, provider: ProviderI
     if (!present(value)) return undefined
     if (typeof value === 'string' && value.length <= MAX_URL && !/[\s\u0000-\u001f\u007f]/u.test(value)) {
       try {
-        const parsed = new URL(value)
-        if (['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password && parsed.href.length <= MAX_URL) return parsed.href
-      } catch { /* Invalid optional links do not fail the source. */ }
+        const href = publicUrl(value)
+        if (href.length <= MAX_URL) return href
+      } catch { /* Invalid or non-public optional links do not fail the source. */ }
     }
     truncated = true
     return undefined
