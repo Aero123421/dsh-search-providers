@@ -37,6 +37,15 @@ async function fixture(t, options = {}) {
   const updates = new Updates(() => manager, dir, '0.3.0', runtime, options.fetcher ?? fetcher(), options.evaluate)
   return { dir, bundle, calls, manager, updates }
 }
+test('A failed release lookup cancels the response body', async () => {
+  let cancelled = false
+  const body = new ReadableStream({
+    start(controller) { controller.enqueue(new TextEncoder().encode('nope')); controller.close() },
+    cancel() { cancelled = true },
+  })
+  await assert.rejects(getCandidate(runtime, async () => new Response(body, { status: 500, headers: { 'content-type': 'application/json' } })), /fetch-500/)
+  assert.equal(cancelled, true)
+})
 test('Strict official metadata, channel, SemVer and compatibility', async () => {
   assert.equal((await getCandidate(runtime, fetcher())).version, version)
   for (const bad of [{ ...release(), draft: true }, { ...release(), prerelease: true }, { ...release(), tag_name: 'v00.4.0' }, { ...release(), html_url: 'https://example.com' }, { ...release(), assets: [...release().assets, release().assets[0]] }]) await assert.rejects(getCandidate(runtime, fetcher(bad)))

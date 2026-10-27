@@ -114,7 +114,7 @@ export function packageManifest(bytes: Buffer): Record<string, unknown> {
 }
 async function json(url: string, fetcher: typeof fetch): Promise<unknown> {
   const response = await fetcher(url, { redirect: 'error', signal: AbortSignal.timeout(15_000), headers: { accept: 'application/vnd.github+json' } })
-  if (!response.ok) throw new Error(`fetch-${response.status}`)
+  if (!response.ok) { await response.body?.cancel().catch(() => {}); throw new Error(`fetch-${response.status}`) }
   if (!response.body) throw new Error('metadata')
   const reader = response.body.getReader(); let length = 0; const chunks: Uint8Array[] = []
   try {

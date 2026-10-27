@@ -2038,9 +2038,30 @@ function httpUrl(value) {
   if (!["https:", "http:"].includes(url.protocol) || url.username || url.password) throw new SearchError("invalid-request", "Expected an HTTP URL without credentials");
   return url.href;
 }
+var LOCAL_SUFFIXES = [".local", ".localhost", ".internal", ".lan", ".home"];
+var ADDRESS_DNS = [".nip.io", ".sslip.io", ".xip.io"];
+function ipv4(host) {
+  const parts = host.split(".");
+  if (parts.length !== 4) return;
+  const octets = parts.map((part) => /^(?:0|[1-9]\d{0,2})$/.test(part) ? Number(part) : Number.NaN);
+  if (octets.some((octet) => !Number.isInteger(octet) || octet > 255)) return;
+  return [octets[0], octets[1], octets[2], octets[3]];
+}
+function privateIPv4(host) {
+  const octets = ipv4(host);
+  if (!octets) return false;
+  const a = octets[0], b = octets[1];
+  return a === 0 || a === 10 || a === 127 || a === 169 && b === 254 || a === 192 && b === 168 || a === 172 && b >= 16 && b <= 31 || a === 100 && b >= 64 && b <= 127 || a === 198 && (b === 18 || b === 19) || a >= 224;
+}
+function embeddedPrivateAddress(host) {
+  if (!ADDRESS_DNS.some((suffix) => host.endsWith(suffix))) return false;
+  const labels = host.split(".");
+  for (let index = 0; index + 3 < labels.length; index++) if (privateIPv4(labels.slice(index, index + 4).join("."))) return true;
+  return false;
+}
 function publicUrl(value) {
   const parsed = new URL(httpUrl(value)), host = parsed.hostname.toLowerCase().replace(/\.$/, "");
-  if (!host.includes(".") || [".local", ".localhost", ".internal", ".lan", ".home"].some((suffix) => host.endsWith(suffix)) || host === "localhost" || host.includes(":") || /^(?:0|10|127)\./.test(host) || /^169\.254\./.test(host) || /^192\.168\./.test(host) || /^172\.(?:1[6-9]|2\d|3[01])\./.test(host) || /^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host) || /^198\.(?:18|19)\./.test(host) || /^(?:22[4-9]|23\d|24\d|25[0-5])\./.test(host)) throw new SearchError("blocked-url", "Expected a public web URL");
+  if (!host.includes(".") || LOCAL_SUFFIXES.some((suffix) => host.endsWith(suffix)) || host === "localhost" || host.includes(":") || privateIPv4(host) || embeddedPrivateAddress(host)) throw new SearchError("blocked-url", "Expected a public web URL");
   return parsed.href;
 }
 var MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -3255,17 +3276,30 @@ var SearchBroker = class {
       if (typeof data.searchRevision !== "string" || snapshot.searchRevision !== data.searchRevision) throw new SearchError("settings-changed", "The search provider changed");
       if (id && !snapshot.entries.find((row) => row.id === id)?.enabled) throw new SearchError("provider-disabled", "Enable the provider first");
       let native = snapshot.nativeSearchProvider;
+      let remember = false;
       if (!snapshot.searchProvider.startsWith(`${NS}-`)) {
         native = snapshot.searchProvider;
+        const changed = native !== snapshot.nativeSearchProvider;
         await this.ctx.settings.update(NS, { nativeSearchProvider: native }, revision);
+        remember = changed;
       }
       const selection = id ? providerRoute(id) : native;
-      await this.ctx.configEditor.edit(entry, (current) => {
-        if (fingerprint(current) !== snapshot.searchRevision) throw new SearchError("settings-changed", "The web configuration changed");
-        const providers = object(object(this.section().value).providers ?? {});
-        if (id && (!Object.hasOwn(providers, id) || object(providers[id]).enabled !== true)) throw new SearchError("provider-disabled", "Enable the provider first");
-        return { ...current, searchProvider: selection };
-      });
+      try {
+        await this.ctx.configEditor.edit(entry, (current) => {
+          if (fingerprint(current) !== snapshot.searchRevision) throw new SearchError("settings-changed", "The web configuration changed");
+          const providers = object(object(this.section().value).providers ?? {});
+          if (id && (!Object.hasOwn(providers, id) || object(providers[id]).enabled !== true)) throw new SearchError("provider-disabled", "Enable the provider first");
+          return { ...current, searchProvider: selection };
+        });
+      } catch (error) {
+        if (remember) {
+          try {
+            await this.ctx.settings.update(NS, { nativeSearchProvider: snapshot.nativeSearchProvider }, this.section().revision);
+          } catch {
+          }
+        }
+        throw error;
+      }
     } else throw new SearchError("invalid-request", "Unknown operation");
     return { saved: true };
   }
@@ -3575,7 +3609,11 @@ function packageManifest(bytes) {
 }
 async function json(url, fetcher) {
   const response = await fetcher(url, { redirect: "error", signal: AbortSignal.timeout(15e3), headers: { accept: "application/vnd.github+json" } });
-  if (!response.ok) throw new Error(`fetch-${response.status}`);
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => {
+    });
+    throw new Error(`fetch-${response.status}`);
+  }
   if (!response.body) throw new Error("metadata");
   const reader = response.body.getReader();
   let length = 0;
@@ -4151,6 +4189,17 @@ function publishedDshRequirements(issue) {
   if (!issue || issue.exempted === true) return {};
   return issue.requirements ?? issue.peers ?? {};
 }
+function settingsConflict(error) {
+  if (!error || typeof error !== "object") return false;
+  const value = error;
+  return value.name === "SettingsConflictError" || value.code === "SETTINGS_CONFLICT";
+}
+function responseCode(error) {
+  if (error instanceof SearchError) return error.code;
+  if (settingsConflict(error)) return "settings-changed";
+  if (error instanceof Error && (error.message === "busy" || error.message === "profile-changed")) return error.message;
+  return "unavailable";
+}
 function apply(ctx, config) {
   const profileDir = ctx.get("profileContext")?.dir;
   if (typeof profileDir === "string" && ensureUninstallHook(profileDir) === "skipped") ctx.logger.warn("left the existing pnpmfile in place, so uninstall cleanup is not installed");
@@ -4246,7 +4295,7 @@ function apply(ctx, config) {
           return Response.json({ type: "server-response", rpcId, result: { ok: true, value } }, { headers: { "cache-control": "no-store" } });
         } catch (error) {
           if (rpcId === void 0) return new Response("invalid request", { status: 400 });
-          const code = error instanceof SearchError ? error.code : error instanceof Error && ["busy", "profile-changed"].includes(error.message) ? error.message : "unavailable";
+          const code = responseCode(error);
           return Response.json({ type: "server-response", rpcId, result: { ok: false, error: { code: `${NS}/${code}`, message: code, details: {} } } }, { headers: { "cache-control": "no-store" } });
         }
       }
@@ -4257,5 +4306,6 @@ export {
   Config,
   apply,
   inject,
-  name
+  name,
+  responseCode
 };
