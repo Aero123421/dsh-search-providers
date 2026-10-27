@@ -85,7 +85,7 @@ RPCを使う実装では、`dsh-search-providers/list` で読んだ最新の `re
 - `recency` は `hour/day/week/month/year`、`recencyMinutes` は1〜5,256,000の整数です。公開日の絶対指定とは併用不可。公開日と更新日・取得日を置き換えません。
 - TinyFish論文は日付・相対鮮度ではなく `yearMin/yearMax` を使います。0〜9999の整数、両端を含みます。Web／ニュースでの年指定はエラーです。`purpose` は2,000文字までです。
 - Exaの人物／企業検索は公開日の指定不可。人物検索は `excludeDomains` も不可です。
-- Braveの `safeSearch` は `off/moderate/strict`。画像は `off/strict` だけで、`uiLanguage`／`freshness`／`goggles` も拒否します。GogglesはWeb／ニュースだけです。1〜3件、各2,000文字までの公開HTTPS URLをBraveへ送り、このプラグイン自身では取得しません。
+- Braveの `safeSearch` は `off/moderate/strict`。画像は `off/strict` だけで、`uiLanguage`／`freshness`／`goggles` も拒否します。GogglesはWeb／ニュースだけです。1〜3件、各2,000文字までの公開HTTPS URLだけを受け、正規化したURLを保存してBraveへ送ります。このプラグイン自身では取得しません。
 - Braveの `freshness` は `pd/pw/pm/py` または `YYYY-MM-DDtoYYYY-MM-DD`。ページの公開日または変更日に基づくため、公開日だけの厳密なフィルターとは呼びません。
 
 ```js

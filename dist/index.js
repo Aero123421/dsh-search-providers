@@ -2028,7 +2028,7 @@ import { WebError } from "@deepseek-ai/dsh-web";
 
 // src/http.ts
 function httpUrl(value) {
-  if (typeof value !== "string" || value.length > 8192) throw new SearchError("invalid-request", "Invalid URL");
+  if (typeof value !== "string" || value.length > 8192 || /[\\\u0000-\u001f\u007f]/.test(value)) throw new SearchError("invalid-request", "Invalid URL");
   let url;
   try {
     url = new URL(value);
@@ -2038,9 +2038,56 @@ function httpUrl(value) {
   if (!["https:", "http:"].includes(url.protocol) || url.username || url.password) throw new SearchError("invalid-request", "Expected an HTTP URL without credentials");
   return url.href;
 }
+var BLOCKED_SUFFIXES = [".local", ".localhost", ".internal", ".lan", ".home", ".home.arpa", ".localdomain", ".localtest.me", ".lvh.me"];
+var BLOCKED_NAMES = /* @__PURE__ */ new Set(["localhost", "localtest.me", "lvh.me", "home.arpa", "localdomain"]);
+function blockedIPv4(address) {
+  return /^(?:0|10|127)\./.test(address) || /^169\.254\./.test(address) || /^192\.168\./.test(address) || /^172\.(?:1[6-9]|2\d|3[01])\./.test(address) || /^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(address) || /^198\.(?:18|19)\./.test(address) || /^(?:22[4-9]|23\d|24\d|25[0-5])\./.test(address);
+}
+function blockedQuad(parts) {
+  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part) || Number(part) > 255)) return false;
+  if (parts.some((part) => part.length > 1 && part.startsWith("0"))) return true;
+  return blockedIPv4(parts.map((part) => String(Number(part))).join("."));
+}
+function blockedSslipIPv6(label) {
+  if (!label.includes("--") || label.split("--").length !== 2 || !/^[0-9a-f-]+$/i.test(label)) return false;
+  const candidate = label.replace("--", "\0").replaceAll("-", ":").replaceAll("\0", "::");
+  let bare;
+  try {
+    const host = new URL(`http://[${candidate}]`).hostname;
+    if (!host.startsWith("[") || !host.endsWith("]")) return false;
+    bare = host.slice(1, -1).toLowerCase();
+  } catch {
+    return false;
+  }
+  if (bare === "::" || bare === "::1") return true;
+  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(bare);
+  if (mapped) {
+    const hi = Number.parseInt(mapped[1] ?? "", 16), lo = Number.parseInt(mapped[2] ?? "", 16);
+    return blockedIPv4(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+  }
+  const first = bare.split(":")[0];
+  if (!first) return false;
+  const value = Number.parseInt(first, 16);
+  if (!Number.isFinite(value)) return false;
+  return (value & 65472) === 65152 || (value & 65024) === 64512 || (value & 65472) === 65216 || (value & 65280) === 65280;
+}
+function embeddedBlockedAddress(host) {
+  const labels = host.split(".");
+  for (let index = 0; index + 3 < labels.length; index++) if (blockedQuad(labels.slice(index, index + 4))) return true;
+  for (const label of labels) {
+    if (blockedSslipIPv6(label)) return true;
+    for (const match of label.matchAll(/(?:^|-)(\d{1,3})-(\d{1,3})-(\d{1,3})-(\d{1,3})(?=-|$)/g)) {
+      if (blockedQuad([match[1] ?? "", match[2] ?? "", match[3] ?? "", match[4] ?? ""])) return true;
+    }
+  }
+  return false;
+}
 function publicUrl(value) {
-  const parsed = new URL(httpUrl(value)), host = parsed.hostname.toLowerCase().replace(/\.$/, "");
-  if (!host.includes(".") || [".local", ".localhost", ".internal", ".lan", ".home"].some((suffix) => host.endsWith(suffix)) || host === "localhost" || host.includes(":") || /^(?:0|10|127)\./.test(host) || /^169\.254\./.test(host) || /^192\.168\./.test(host) || /^172\.(?:1[6-9]|2\d|3[01])\./.test(host) || /^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host) || /^198\.(?:18|19)\./.test(host) || /^(?:22[4-9]|23\d|24\d|25[0-5])\./.test(host)) throw new SearchError("blocked-url", "Expected a public web URL");
+  const parsed = new URL(httpUrl(value));
+  let host = parsed.hostname.toLowerCase();
+  if (host.includes("..") || host.startsWith(".")) throw new SearchError("blocked-url", "Expected a public web URL");
+  host = host.replace(/\.$/, "");
+  if (!host.includes(".") || BLOCKED_NAMES.has(host) || BLOCKED_SUFFIXES.some((suffix) => host.endsWith(suffix)) || host.includes(":") || blockedIPv4(host) || embeddedBlockedAddress(host)) throw new SearchError("blocked-url", "Expected a public web URL");
   return parsed.href;
 }
 var MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -2179,14 +2226,18 @@ function validateSearchOptions(id, input, capability) {
     }
     if (key2 === "goggles") {
       if (!Array.isArray(value) || !value.length || value.length > 3 || value.some((item) => typeof item !== "string" || item.length > 2e3)) invalid("Use 1 to 3 public HTTPS Goggle URLs");
+      const canonical = [];
       for (const item of value) {
+        let href;
         try {
-          if (new URL(publicUrl(item)).protocol !== "https:") invalid("Use public HTTPS Goggle URLs");
+          href = publicUrl(item);
         } catch {
           invalid("Use public HTTPS Goggle URLs");
         }
+        if (new URL(href).protocol !== "https:") invalid("Use public HTTPS Goggle URLs");
+        canonical.push(href);
       }
-      result[key2] = value;
+      result[key2] = canonical;
       continue;
     }
     if (key2 === "yearMin" || key2 === "yearMax" || key2 === "recencyMinutes") {
@@ -3280,9 +3331,19 @@ import { mkdir, mkdtemp, readFile, rename, writeFile, lstat } from "node:fs/prom
 import { join as join2, resolve, relative, isAbsolute } from "node:path";
 
 // src/update-download.ts
+function pathEscapes(path) {
+  return path.split("/").includes("..");
+}
 function allowedUrl(value) {
   const url = new URL(String(value));
   if (url.protocol !== "https:" || url.username || url.password || url.port || url.hash) throw new Error("redirect");
+  let decoded = url.pathname;
+  try {
+    decoded = decodeURIComponent(url.pathname);
+  } catch {
+    throw new Error("redirect");
+  }
+  if (pathEscapes(url.pathname) || pathEscapes(decoded)) throw new Error("redirect");
   if (url.hostname === "api.github.com" && url.pathname.startsWith(`/repos/${REPOSITORY}/`)) return url;
   if (url.hostname === "github.com" && url.pathname.startsWith(`/${REPOSITORY}/releases/download/`)) return url;
   if (url.hostname === "raw.githubusercontent.com" && url.pathname.startsWith(`/${REPOSITORY}/`)) return url;
