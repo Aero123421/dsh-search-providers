@@ -33,7 +33,7 @@ export async function compileOfficial(entry, outfile) {
   await ensureUpstream()
   const roots=await packageRoots(upstreamRoot)
   const primitiveEntry=resolve('.cache/official-locale-primitives.ts')
-  await (await import('node:fs/promises')).writeFile(primitiveEntry, `export { Menu } from './upstream/packages/client/ui-primitives/src/Menu.tsx';\nexport { IconChevronDownOutlineRegular } from './upstream/packages/client/ui-primitives/src/icons/index.tsx';\n`)
+  await (await import('node:fs/promises')).writeFile(primitiveEntry, `export * from '../scripts/native-components.jsx';\n`)
   const aliases={name:'official-source-packages',setup(builder){
     builder.onResolve({filter:/^@deepseek-ai\//},async args=>{
       if(args.path==='@deepseek-ai/dsh-client-ui-primitives')return {path:primitiveEntry}
@@ -48,5 +48,5 @@ export async function compileOfficial(entry, outfile) {
   }}
   // Resolve Harness imports from the pinned source; use node_modules for third-party dependencies.
   const nodePaths=[resolve('node_modules'),...(process.env.DSH_TEST_NODE_MODULES?[resolve(process.env.DSH_TEST_NODE_MODULES)]:[])]
-  await build({entryPoints:[entry],outfile,bundle:true,platform:'browser',format:'iife',target:'es2022',jsx:'automatic',nodePaths,alias:{react:resolve('node_modules/react'),'react-dom':resolve('node_modules/react-dom')},plugins:[aliases],loader:{'.css':'text'},logLevel:'silent',tsconfigRaw:{compilerOptions:{experimentalDecorators:true}}})
+  await build({entryPoints:[entry],outfile,bundle:true,platform:'browser',format:'iife',target:'es2022',jsx:'automatic',nodePaths,alias:{react:resolve('node_modules/react'),'react-dom':resolve('node_modules/react-dom')},plugins:[aliases],loader:{'.module.css':'local-css','.css':'text'},logLevel:'silent',tsconfigRaw:{compilerOptions:{experimentalDecorators:true}}})
 }

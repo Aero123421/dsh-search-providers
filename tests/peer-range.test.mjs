@@ -11,7 +11,8 @@ test('Installed app-boot accepts this package on 0.2.1-alpha.2 through later 0.2
   assert.equal(evaluatePluginCompatibility(manifest, {}, '0.2.1-alpha.3'), undefined)
   const pinned = { ...manifest, peerDependencies: { ...manifest.peerDependencies, '@deepseek-ai/dsh-web': '0.2.1-alpha.2' } }
   assert.ok(peerRangeErrors(pinned, evaluatePluginCompatibility).some(error => error.includes('@deepseek-ai/dsh-web')))
-  assert.ok(evaluatePluginCompatibility(pinned, {}, '0.2.1-alpha.3')?.peers['@deepseek-ai/dsh-web'])
+  const issue = evaluatePluginCompatibility(pinned, {}, '0.2.1-alpha.3')
+  assert.ok((issue?.requirements ?? issue?.peers)?.['@deepseek-ai/dsh-web'])
 })
 
 test('A future DSH release outside the peer range fails the published-version check', () => {
