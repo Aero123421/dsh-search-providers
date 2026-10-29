@@ -1,6 +1,6 @@
 # 開発と検証
 
-Node.js 22.19以降を使います。HostとClientは別々にビルドし、HostのDSHパッケージとClientのReactは実行環境から解決します。UI部品は `upstream.json` に固定した公式ソースからビルドに含めます。
+Node.js 22.19以降を使います。HostとClientは別々にビルドし、HostのDSHパッケージとClientのReact・UI部品は実行環境から解決します。`dsh.client.external` に宣言した公開の `@deepseek-ai/dsh-client-ui-primitives` を使い、Modalのキーボード制御とfocus管理をHostと共有します。この公開moduleは最小対応版 `0.2.1-alpha.2` にもあります。ブラウザーテストのHost側部品だけは `upstream.json` に固定した公式ソースを使います。
 
 ```sh
 npm ci
