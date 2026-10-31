@@ -15,6 +15,7 @@ const fixture = await hostFixture({ authenticate: request => {
 } })
 const files = new Map([
   ['/fixture.js', resolve('.cache/browser-fixture.js')], ['/plugin.js', resolve('dist/client.js')],
+  ['/fixture.css', resolve('.cache/browser-fixture.css')],
   ['/base.css', resolve('.cache/upstream/packages/client/ui-theme/src/styles/base.css')],
   ['/tokens.css', resolve('.cache/upstream/packages/client/ui-theme/src/styles/design-platform.css')],
 ])
@@ -31,7 +32,7 @@ const server = createServer(async (req, res) => {
     }
     if (files.has(url.pathname)) { res.setHeader('content-type', url.pathname.endsWith('.css') ? 'text/css' : 'text/javascript'); res.end(await readFile(files.get(url.pathname))); return }
     res.setHeader('content-type', 'text/html'); res.setHeader('set-cookie', 'fixture-session=ready; HttpOnly; SameSite=Strict; Path=/')
-    res.end('<!doctype html><html lang="ja"><head><meta charset="utf-8"><link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/base.css"><style>body{margin:0;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family)}.fixture-settings{max-width:760px;margin:24px auto;padding:24px}</style></head><body><div id="app"></div><script src="/fixture.js"></script><script src="/plugin.js"></script><script>mountPlugins()</script></body></html>')
+    res.end('<!doctype html><html lang="ja"><head><meta charset="utf-8"><link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/base.css"><link rel="stylesheet" href="/fixture.css"><style>body{margin:0;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family)}.fixture-settings{max-width:760px;margin:24px auto;padding:24px}</style></head><body><div id="app"></div><script src="/fixture.js"></script><script src="/plugin.js"></script><script>mountPlugins()</script></body></html>')
   } catch { res.writeHead(500); res.end('Fixture failed') }
 })
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -73,6 +74,12 @@ try {
   await page.waitForFunction(() => document.querySelector('[aria-label="このプロバイダーを使う: FxTwitter"]')?.getAttribute('aria-checked') === 'true')
   assert.ok(fixture.ctx.tools.get('x_search'))
   const exa = page.locator('.dsh-search-provider').filter({ has: page.getByText('Exa', { exact: true }) })
+  await exa.getByRole('button', { name: 'APIキーを保存', exact: true }).click()
+  // The host's keyboard guards and close command must see the plugin's modal.
+  assert.equal(await page.evaluate(() => window.testRuntime.isBehindModal(document.querySelector('.fixture-settings'))), true)
+  await page.evaluate(() => window.testRuntime.closeTopModal(document))
+  await page.getByRole('dialog').waitFor({ state: 'hidden' })
+  assert.equal(await page.evaluate(() => window.testRuntime.isBehindModal(document.querySelector('.fixture-settings'))), false)
   await exa.getByRole('button', { name: 'APIキーを保存', exact: true }).click()
   const input = page.getByLabel('APIキー', { exact: true })
   assert.equal(await input.getAttribute('type'), 'password')

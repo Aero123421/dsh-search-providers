@@ -1,7 +1,13 @@
 import { REPOSITORY } from './updates.ts'
+function pathEscapes(path: string): boolean {
+  return path.split('/').includes('..')
+}
 function allowedUrl(value: string | URL) {
   const url = new URL(String(value))
   if (url.protocol !== 'https:' || url.username || url.password || url.port || url.hash) throw new Error('redirect')
+  let decoded = url.pathname
+  try { decoded = decodeURIComponent(url.pathname) } catch { throw new Error('redirect') }
+  if (pathEscapes(url.pathname) || pathEscapes(decoded)) throw new Error('redirect')
   if (url.hostname === 'api.github.com' && url.pathname.startsWith(`/repos/${REPOSITORY}/`)) return url
   if (url.hostname === 'github.com' && url.pathname.startsWith(`/${REPOSITORY}/releases/download/`)) return url
   if (url.hostname === 'raw.githubusercontent.com' && url.pathname.startsWith(`/${REPOSITORY}/`)) return url

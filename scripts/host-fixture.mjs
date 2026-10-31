@@ -1,4 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import { WebRuntime } from '@deepseek-ai/dsh-web'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -49,13 +51,24 @@ export async function hostFixture({ authenticate = () => true, manager, profileD
   ctx.provide('configEditor', { entries: () => [entry], edit: async (row, change) => { row.options.config = change(row.options.config, {}); ctx.emit('connection/reset') } })
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  // Latest compositions select an executor separately from the tools registry.
+  if (process.env.DSH_NATIVE_MODULES) {
+    const executor = await import(pathToFileURL(join(process.env.DSH_NATIVE_MODULES, '@deepseek-ai/dsh-tool-executor-native/lib/index.js')).href)
+    await ctx.plugin(executor)
+  }
   await ctx.plugin(WebRuntime, { searchProvider: providerRoute('exa'), fetchProvider: 'http' })
-  await ctx.plugin(child => { new HostConnectionService(child, [], { isAuthenticated: authenticate }) })
-  const native = ctx.plugin({ inject: ['systemPrompt', 'tools', 'web'], apply: child => { applyWebSearchTool(child, 8, 4, 60_000, true); applyWebFetchTool(child, 30_000, 200_000) } }); await native.await()
+  await ctx.plugin(child => { new HostConnectionService(child, [], { isAuthenticated: authenticate, authenticateApi: () => undefined }) })
+  // Newer SDKs added summaryMaxChars before timeoutMs; exercise the installed implementation.
+  const native = ctx.plugin({ inject: ['systemPrompt', 'tools', 'web'], apply: child => {
+    const options = applyWebSearchTool.length >= 6 ? [8, 4, 6000, 60_000, true] : [8, 4, 60_000, true]
+    applyWebSearchTool(child, ...options); applyWebFetchTool(child, 30_000, 200_000)
+  } }); await native.await()
   const config = plugin.Config(value)
   // The test's settings store is live just like Cordis Volatile values.
   const fiber = ctx.plugin({ inject: plugin.inject, apply: child => plugin.apply(child, { providers: { get: () => value.providers }, tools: { get: () => value.tools } }) }); await fiber.await()
-  const handler = ctx.connection.createSharedFetchHandler('/api')
+  const sharedHandler = ctx.connection.createSharedFetchHandler('/api')
+  // The real server supplies the authenticated owner peer on newer SDKs.
+  const handler = { fetch: request => sharedHandler.fetch(request, { principal: { kind: 'owner' } }) }
   async function rpc(method, payload = {}) {
     const endpoint = `${NS}/${method}`
     const response = await handler.fetch(new Request(`http://localhost/api/${endpoint}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'client-request', rpcId: 'fixture', method: endpoint, payload }) }))

@@ -153,7 +153,7 @@ test('Global count and URL length limits fail before sending, even for repeated 
 })
 test('All inputs are public URL validated before any provider request', async () => {
   let calls = 0
-  for (const invalid of ['http://localhost/', 'http://127.1/', 'http://169.254.169.254/', 'http://10.1.2.3/', 'http://[::1]/', 'https://user:secret@example.com/', 'file:///etc/passwd', 42]) {
+  for (const invalid of ['http://localhost/', 'http://127.1/', 'http://169.254.169.254/', 'http://10.1.2.3/', 'http://[::1]/', 'https://user:secret@example.com/', 'file:///etc/passwd', 'https://foo.169.254.169.254.nip.io/latest', 'https://prefix-10-0-0-1.sslip.io/', 'https://0--1.sslip.io/', 'https://localtest.me/', 'https://foo.lvh.me/', 'https://metadata.google.internal../', 'https://example.com\\@169.254.169.254/', 42]) {
     await assert.rejects(batchExtract('tinyfish', [a, invalid], async () => { calls++; return {} }))
   }
   assert.equal(calls, 0)

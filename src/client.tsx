@@ -10,7 +10,6 @@ import { problemCopyKey, problemHeading } from './problem-copy.ts'
 import { en, ja, zh, type CopyKey } from './locales.ts'
 import { MODES, OPTION_FIELDS, validateSearchOptions, type OptionKey, type SearchOptions } from './search-options.ts'
 import css from './styles.css'
-import controlsCss from '../.cache/native-controls.css'
 
 const COPY_NS = 'dsh.searchProviders'
 type Translate = (key: CopyKey) => string
@@ -232,7 +231,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => () => { controller.dispose(); updates.dispose() })
   ctx.effect(() => ctx.locale.register(COPY_NS, { en, ja, zh }))
   ctx.effect(() => {
-    const style = document.createElement('style'); style.dataset.dshSearchProviders = ''; style.textContent = controlsCss + css; document.head.append(style)
+    const style = document.createElement('style'); style.dataset.dshSearchProviders = ''; style.textContent = css; document.head.append(style)
     return () => style.remove()
   })
   ctx.on('connection/reset', () => { controller.refreshIfLoaded(); updates.reset() })
