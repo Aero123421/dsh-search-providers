@@ -248,7 +248,8 @@ test('Brave freshness, safe search, Goggle count/URLs and image restrictions are
   assert.doesNotThrow(() => validateSearchOptions('brave', { goggles: ['https://example.com/g'] }, 'news'))
 })
 test('Goggle URLs described as public reject loopback, private ranges and private hostnames', () => {
-  for (const url of ['https://127.0.0.1/g', 'https://10.1.2.3/g', 'https://169.254.169.254/g', 'https://search.internal/g', 'https://search.local/g']) assert.throws(() => validateSearchOptions('brave', { goggles: [url] }), invalid, url)
+  for (const url of ['https://127.0.0.1/g', 'https://10.1.2.3/g', 'https://169.254.169.254/g', 'https://search.internal/g', 'https://search.local/g', 'https://foo.169.254.169.254.nip.io/g', 'https://localtest.me/g', 'https://0--1.sslip.io/g', 'https://example.com\\@169.254.169.254/g']) assert.throws(() => validateSearchOptions('brave', { goggles: [url] }), invalid, url)
+  assert.deepEqual(validateSearchOptions('brave', { goggles: ['https://EXAMPLE.com:443/goggles/a'] }).goggles, ['https://example.com/goggles/a'])
 })
 test('TinyFish purpose has an explicit 2000-character maximum and wrong types fail', () => {
   assert.equal(validateSearchOptions('tinyfish', { purpose: 'a'.repeat(2000) }).purpose.length, 2000)

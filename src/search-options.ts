@@ -50,11 +50,15 @@ export function validateSearchOptions(id: ProviderId, input: unknown, capability
     if (key === 'includeDomains' || key === 'excludeDomains') { result[key] = domains(value); continue }
     if (key === 'goggles') {
       if (!Array.isArray(value) || !value.length || value.length > 3 || value.some(item => typeof item !== 'string' || item.length > 2000)) invalid('Use 1 to 3 public HTTPS Goggle URLs')
+      const canonical: string[] = []
       for (const item of value) {
-        try { if (new URL(publicUrl(item)).protocol !== 'https:') invalid('Use public HTTPS Goggle URLs') }
-        catch { invalid('Use public HTTPS Goggle URLs') }
+        let href: string
+        try { href = publicUrl(item) } catch { invalid('Use public HTTPS Goggle URLs') }
+        if (new URL(href).protocol !== 'https:') invalid('Use public HTTPS Goggle URLs')
+        canonical.push(href)
       }
-      result[key] = value; continue
+      result[key] = canonical
+      continue
     }
     if (key === 'yearMin' || key === 'yearMax' || key === 'recencyMinutes') {
       const maximum = key === 'recencyMinutes' ? 5_256_000 : 9999, minimum = key === 'recencyMinutes' ? 1 : 0

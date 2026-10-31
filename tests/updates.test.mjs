@@ -162,6 +162,11 @@ test('Checksum failure is recorded as failure before manager is invoked', async 
 test('Redirects, oversized streams and HTTP errors fail closed', async () => {
   const url = `https://github.com/${REPOSITORY}/releases/download/${tag}/${filename}`
   await assert.rejects(boundedFetch(url, 10, { fetcher: async () => new Response(null, { status: 302, headers: { location: 'https://evil.example/payload' } }) }), /redirect/)
+  const asset = 'https://release-assets.githubusercontent.com/github-production-release-asset/1/abc'
+  const body = await boundedFetch(url, 10, { fetcher: async input => String(input) === url ? new Response(null, { status: 302, headers: { location: asset } }) : new Response('asset') })
+  assert.equal(body.toString(), 'asset')
+  await assert.rejects(boundedFetch(url, 10, { fetcher: async () => new Response(null, { status: 302, headers: { location: `https://raw.githubusercontent.com/${REPOSITORY}/..%2f..%2fother/repo/main/x` } }) }), /redirect/)
+  await assert.rejects(boundedFetch(url, 10, { fetcher: async () => new Response(null, { status: 302, headers: { location: `https://github.com/${REPOSITORY}/releases/download/${tag}/%2e%2e/%2e%2e/other.tgz` } }) }), /redirect/)
   await assert.rejects(boundedFetch(url, 2, { fetcher: async () => new Response('long') }), /size/)
   await assert.rejects(boundedFetch(url, 20, { fetcher: async () => new Response('', { status: 404 }) }), /release-unavailable/)
 })

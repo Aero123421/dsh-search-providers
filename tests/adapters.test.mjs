@@ -105,7 +105,7 @@ test('Extraction rejects local and credential-bearing URLs', () => {
   assert.equal(publicUrl('https://example.nip.io/'), 'https://example.nip.io/')
 })
 test('Public hostnames that only start like a private address stay requestable', () => {
-  for (const url of ['https://10.com/', 'https://224.com/', 'https://0.com/', 'https://127.net/', 'https://192.168.com/', 'https://169.254.com/', 'https://172.16.com/', 'https://100.64.com/', 'https://198.18.com/', 'https://10.0.0.1.example.com/']) assert.equal(publicUrl(url), url)
+  for (const url of ['https://10.com/', 'https://224.com/', 'https://0.com/', 'https://127.net/', 'https://192.168.com/', 'https://169.254.com/', 'https://172.16.com/', 'https://100.64.com/', 'https://198.18.com/']) assert.equal(publicUrl(url), url)
 })
 test('Keenable extraction sends a public lookalike hostname and still refuses a private address', async () => {
   const sent = []
@@ -114,6 +114,24 @@ test('Keenable extraction sends a public lookalike hostname and still refuses a 
   assert.match(sent[0], /^https:\/\/api\.keenable\.ai\/v1\/fetch\/public\?/)
   assert.match(sent[0], /url=https%3A%2F%2F10\.com%2Fdocs/)
   await assert.rejects(adapter.extract('http://10.0.0.1/secret'), error => error.code === 'blocked-url' && sent.length === 1)
+})
+test('Public embedded addresses and absolute DNS names remain requestable', () => {
+  assert.equal(publicUrl('https://example.com./'), 'https://example.com./')
+  assert.equal(publicUrl('https://1.1.1.1.nip.io/'), 'https://1.1.1.1.nip.io/')
+  assert.equal(publicUrl('https://1-1-1-1.sslip.io/'), 'https://1-1-1-1.sslip.io/')
+  assert.equal(publicUrl('https://2001-4860-4860--8888.example.com/'), 'https://2001-4860-4860--8888.example.com/')
+})
+test('Embedded private addresses and rewritten hosts stay blocked before any request', () => {
+  const blocked = [
+    'https://app.127.0.0.1.nip.io/', 'https://foo.10.1.2.3.nip.io/', 'https://foo.192.168.1.20.nip.io/', 'https://foo.172.16.0.5.nip.io/',
+    'https://foo.169.254.169.254.nip.io/latest/meta-data', 'https://10.0.0.1.traefik.me/', 'https://10.0.0.1.example.com/',
+    'https://127-0-0-1.sslip.io/', 'https://10-1-2-3.sslip.io/', 'https://169-254-169-254.sslip.io/', 'https://a.169-254-169-254.sslip.io/', 'https://prefix-10-0-0-1.sslip.io/',
+    'https://0--1.sslip.io/', 'https://fe80--1.sslip.io/',
+    'https://localtest.me/', 'https://foo.localtest.me/', 'https://lvh.me/', 'https://foo.lvh.me/',
+    'https://metadata.google.internal../', 'https://localhost../', 'https://foo.localhost../', 'https://metadata.google.internal.%2e/',
+  ]
+  for (const url of blocked) assert.throws(() => publicUrl(url), error => error.code === 'blocked-url', url)
+  for (const url of ['https://example.com\\@169.254.169.254/latest', 'http://example.com\n@169.254.169.254/', 'https://example.com/\tprivate']) assert.throws(() => publicUrl(url), error => error.code === 'invalid-request', url)
 })
 test('Unsupported capability configurations are rejected', () => {
   assert.throws(() => validateSettings({ providers: {}, tools: { papers: { provider: 'brave', enabled: true } } }))
@@ -127,6 +145,14 @@ const privateUrls = [
   'http://10.1.2.3/secret',
   'http://192.168.0.10/secret',
   'http://metadata.google.internal/computeMetadata/v1/',
+  'http://foo.169.254.169.254.nip.io/latest/meta-data',
+  'http://prefix-10-0-0-1.sslip.io/secret',
+  'http://0--1.sslip.io/secret',
+  'http://fe80--1.sslip.io/secret',
+  'http://localtest.me/secret',
+  'http://foo.lvh.me/secret',
+  'http://metadata.google.internal../computeMetadata/v1/',
+  'http://localhost../secret',
 ]
 test('Search results drop private and metadata URLs', async () => {
   const adapter = new SearchAdapter({ id: 'exa', enabled: () => true, resolveKey: async () => 'key', transport: async () => Response.json({ results: [
@@ -138,6 +164,17 @@ test('Search results drop private and metadata URLs', async () => {
   assert.equal(result.truncated, true)
   assert.equal(JSON.stringify(result).includes('169.254'), false)
   assert.equal(JSON.stringify(result).includes('metadata.google.internal'), false)
+  assert.equal(JSON.stringify(result).includes('localtest.me'), false)
+  assert.equal(JSON.stringify(result).includes('lvh.me'), false)
+  assert.equal(JSON.stringify(result).includes('sslip.io'), false)
+})
+test('Extraction does not call the provider for a blocked URL', async () => {
+  for (const input of privateUrls) {
+    let calls = 0
+    const adapter = new SearchAdapter({ id: 'exa', enabled: () => true, resolveKey: async () => 'key', transport: async () => { calls++; return Response.json({}) } })
+    await assert.rejects(adapter.extract(input), error => error.code === 'blocked-url', input)
+    assert.equal(calls, 0, input)
+  }
 })
 test('Extraction refuses a private final URL', async () => {
   for (const finalUrl of privateUrls) {
