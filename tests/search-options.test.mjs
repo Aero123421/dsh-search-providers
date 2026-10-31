@@ -332,6 +332,73 @@ test('Broker search-options atomically replaces only its subtree, and empty opti
   assert.deepEqual(h.mutations[1][1][0].value, {}); assert.deepEqual(h.updates, [])
   assert.equal(h.section.value.providers.nimble.enabled, true)
 })
+function defaultHarness({ native = 'deepseek-official', searchProvider = 'brave', edit } = {}) {
+  let revision = 4
+  const updates = []
+  const section = { ns: NS, revision, value: { nativeSearchProvider: native, providers: { keenable: { enabled: true } }, tools: {} } }
+  const config = { searchProvider, fetchProvider: 'keep' }
+  const broker = new SearchBroker({
+    settings: {
+      describe: () => [{ ...section, revision }],
+      update: async (_namespace, patch, expected) => {
+        assert.equal(expected, revision)
+        updates.push(structuredClone(patch))
+        section.value = { ...section.value, ...patch }
+        revision += 1
+      },
+      mutate: async () => { throw new Error('unexpected mutate') },
+    },
+    credentials: { describeRecord: async () => ({ configured: false, writable: true }), describe: async () => ({ configured: false }) },
+    configEditor: {
+      entries: () => [{ options: { id: 'web', name: '@deepseek-ai/dsh-web', config } }],
+      edit: edit ?? (async () => { throw new Error('web edit failed') }),
+    },
+  })
+  return { broker, section, updates, config, revision: () => revision }
+}
+test('A failed web-provider edit restores the previous native provider', async () => {
+  const editError = new Error('Configuration for "web" is overridden by a home patch or command-line overlay')
+  const h = defaultHarness({ edit: async () => { throw editError } })
+  const snapshot = await h.broker.snapshot()
+  await assert.rejects(h.broker.dispatch('default', { provider: 'keenable', revision: snapshot.revision, searchRevision: snapshot.searchRevision }), error => error === editError)
+  assert.deepEqual(h.updates, [{ nativeSearchProvider: 'brave' }, { nativeSearchProvider: 'deepseek-official' }])
+  assert.equal(h.section.value.nativeSearchProvider, 'deepseek-official')
+  assert.equal(h.config.searchProvider, 'brave')
+})
+test('A failed restore still reports the web edit error', async () => {
+  const editError = new Error('Configuration entry is no longer available')
+  const updates = []
+  let revision = 4
+  const section = { ns: NS, revision, value: { nativeSearchProvider: 'deepseek-official', providers: { keenable: { enabled: true } }, tools: {} } }
+  const config = { searchProvider: 'brave', fetchProvider: 'keep' }
+  const broker = new SearchBroker({
+    settings: {
+      describe: () => [{ ...section, revision }],
+      update: async (_namespace, patch, expected) => {
+        assert.equal(expected, revision)
+        updates.push(structuredClone(patch))
+        if (updates.length === 2) throw new Error('rollback-failed')
+        section.value = { ...section.value, ...patch }
+        revision += 1
+      },
+      mutate: async () => { throw new Error('unexpected mutate') },
+    },
+    credentials: { describeRecord: async () => ({ configured: false, writable: true }), describe: async () => ({ configured: false }) },
+    configEditor: { entries: () => [{ options: { id: 'web', name: '@deepseek-ai/dsh-web', config } }], edit: async () => { throw editError } },
+  })
+  const snapshot = await broker.snapshot()
+  await assert.rejects(broker.dispatch('default', { provider: 'keenable', revision: snapshot.revision, searchRevision: snapshot.searchRevision }), error => error === editError)
+  assert.equal(section.value.nativeSearchProvider, 'brave')
+})
+test('An unchanged native provider is left in place when web search is saved', async () => {
+  const edits = []
+  const h = defaultHarness({ native: 'brave', searchProvider: 'brave', edit: async (_entry, change) => { edits.push(change(h.config, {})) } })
+  const snapshot = await h.broker.snapshot()
+  assert.deepEqual(await h.broker.dispatch('default', { provider: 'native', revision: snapshot.revision, searchRevision: snapshot.searchRevision }), { saved: true })
+  assert.deepEqual(h.updates, [{ nativeSearchProvider: 'brave' }])
+  assert.equal(edits[0].searchProvider, 'brave')
+  assert.equal(edits[0].fetchProvider, 'keep')
+})
 test('Broker rejects stale revisions, unsupported providers and invalid options before mutation', async () => {
   const h = brokerHarness()
   await assert.rejects(h.broker.dispatch('search-options', { provider: 'nimble', revision: 6, options: {} }), error => error.code === 'settings-changed')

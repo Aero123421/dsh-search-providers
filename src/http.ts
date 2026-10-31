@@ -7,14 +7,36 @@ export function httpUrl(value: unknown): string {
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new SearchError('invalid-request', 'Expected an HTTP URL without credentials')
   return url.href
 }
+const LOCAL_SUFFIXES = ['.local', '.localhost', '.internal', '.lan', '.home']
+// These names encode an address in the labels. A private address there is still a private target.
+const ADDRESS_DNS = ['.nip.io', '.sslip.io', '.xip.io']
+function ipv4(host: string): [number, number, number, number] | undefined {
+  const parts = host.split('.')
+  if (parts.length !== 4) return
+  const octets = parts.map(part => /^(?:0|[1-9]\d{0,2})$/.test(part) ? Number(part) : Number.NaN)
+  if (octets.some(octet => !Number.isInteger(octet) || octet > 255)) return
+  return [octets[0]!, octets[1]!, octets[2]!, octets[3]!]
+}
+function privateIPv4(host: string): boolean {
+  const octets = ipv4(host)
+  if (!octets) return false
+  const a = octets[0], b = octets[1]
+  return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 192 && b === 168)
+    || (a === 172 && b >= 16 && b <= 31) || (a === 100 && b >= 64 && b <= 127)
+    || (a === 198 && (b === 18 || b === 19)) || a >= 224
+}
+function embeddedPrivateAddress(host: string): boolean {
+  if (!ADDRESS_DNS.some(suffix => host.endsWith(suffix))) return false
+  const labels = host.split('.')
+  for (let index = 0; index + 3 < labels.length; index++) if (privateIPv4(labels.slice(index, index + 4).join('.'))) return true
+  return false
+}
 // A remote extractor must not be asked to read loopback, local names, or cloud metadata.
+// Private ranges apply to a canonical IPv4 hostname. A public name that merely starts with the same digits is not an address.
 export function publicUrl(value: unknown): string {
   const parsed = new URL(httpUrl(value)), host = parsed.hostname.toLowerCase().replace(/\.$/, '')
-  if (!host.includes('.') || ['.local', '.localhost', '.internal', '.lan', '.home'].some(suffix => host.endsWith(suffix)) || host === 'localhost'
-    || host.includes(':') || /^(?:0|10|127)\./.test(host) || /^169\.254\./.test(host)
-    || /^192\.168\./.test(host) || /^172\.(?:1[6-9]|2\d|3[01])\./.test(host)
-    || /^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host) || /^198\.(?:18|19)\./.test(host)
-    || /^(?:22[4-9]|23\d|24\d|25[0-5])\./.test(host)) throw new SearchError('blocked-url', 'Expected a public web URL')
+  if (!host.includes('.') || LOCAL_SUFFIXES.some(suffix => host.endsWith(suffix)) || host === 'localhost'
+    || host.includes(':') || privateIPv4(host) || embeddedPrivateAddress(host)) throw new SearchError('blocked-url', 'Expected a public web URL')
   return parsed.href
 }
 export type Transport = (url: string | URL, init?: RequestInit) => Promise<Response>
