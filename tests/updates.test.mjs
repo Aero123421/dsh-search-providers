@@ -262,7 +262,9 @@ test('Dispose during the final asynchronous bundle lookup cannot invoke the inst
 test('Authenticated Host route returns busy for an unadmitted Client installation', async t => {
   const { hostFixture } = await import('../scripts/host-fixture.mjs')
   const { manager, dir, bundle } = await fixture(t)
-  const savedFetch = globalThis.fetch; globalThis.fetch = fetcher(); t.after(() => { globalThis.fetch = savedFetch })
+  const savedFetch = globalThis.fetch
+  globalThis.fetch = fetcher(release(), { ...manifest(), peerDependencies: { '@deepseek-ai/dsh-web': '>=0.2.1-alpha.2 <0.3.0-0' } })
+  t.after(() => { globalThis.fetch = savedFetch })
   let releaseInstall, announceInstall
   const entered = new Promise(resolve => { announceInstall = resolve })
   manager.installBundle = async () => { announceInstall(); return new Promise(resolve => { releaseInstall = resolve }) }

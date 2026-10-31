@@ -18,7 +18,8 @@ test('Extra search canonical schema, model rendering and JSON replay preserve ty
 test('Actual DSH standard projection retains metadata via bounded snippet in result/meta/render and JSON replay', async () => {
   const value = withMetadataSnippets({ sources: [source], truncated: false })
   let standard
-  applyWebSearchTool({ systemPrompt: { section: () => {}, getSectionOrder: () => 0 }, web: { search: async () => value }, tools: { register: tool => { standard = tool } } }, 8, 4, 60_000, true)
+  const options = applyWebSearchTool.length >= 6 ? [8, 4, 6000, 60_000, true] : [8, 4, 60_000, true]
+  applyWebSearchTool({ systemPrompt: { section: () => {}, getSectionOrder: () => 0 }, web: { search: async () => value }, tools: { register: tool => { standard = tool } } }, ...options)
   const result = await standard.execute({ queries: ['paper'] }, { signal: new AbortController().signal })
   validateJsonSchemaValue(standard.output.schema, result)
   assert.deepEqual(Object.keys(result.sources[0]).sort(), ['publishedAt', 'snippet', 'title', 'url'])
