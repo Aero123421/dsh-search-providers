@@ -355,7 +355,7 @@ function defaultHarness({ native = 'deepseek-official', searchProvider = 'brave'
       edit: edit ?? (async () => { throw new Error('web edit failed') }),
     },
   })
-  return { broker, section, updates, config, revision: () => revision }
+  return { broker, section, updates, config, revision: () => revision, advanceRevision: async () => { revision += 1 } }
 }
 test('A failed web-provider edit restores the previous native provider', async () => {
   const editError = new Error('Configuration for "web" is overridden by a home patch or command-line overlay')
@@ -365,6 +365,20 @@ test('A failed web-provider edit restores the previous native provider', async (
   assert.deepEqual(h.updates, [{ nativeSearchProvider: 'brave' }, { nativeSearchProvider: 'deepseek-official' }])
   assert.equal(h.section.value.nativeSearchProvider, 'deepseek-official')
   assert.equal(h.config.searchProvider, 'brave')
+})
+test('A failed web edit does not roll back a concurrent settings update', async () => {
+  const editError = new Error('web edit failed')
+  let h
+  h = defaultHarness({ edit: async () => {
+    h.section.value.nativeSearchProvider = 'another-provider'
+    // Simulate a separate revisioned edit while the web edit is pending.
+    await h.advanceRevision()
+    throw editError
+  } })
+  const snapshot = await h.broker.snapshot()
+  await assert.rejects(h.broker.dispatch('default', { provider: 'keenable', revision: snapshot.revision, searchRevision: snapshot.searchRevision }), error => error === editError)
+  assert.equal(h.section.value.nativeSearchProvider, 'another-provider')
+  assert.deepEqual(h.updates, [{ nativeSearchProvider: 'brave' }])
 })
 test('A failed restore still reports the web edit error', async () => {
   const editError = new Error('Configuration entry is no longer available')

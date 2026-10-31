@@ -3324,7 +3324,7 @@ var SearchBroker = class {
       } catch (error) {
         if (remember) {
           try {
-            await this.ctx.settings.update(NS, { nativeSearchProvider: snapshot.nativeSearchProvider }, this.section().revision);
+            await this.ctx.settings.update(NS, { nativeSearchProvider: snapshot.nativeSearchProvider }, revision + 1);
           } catch {
           }
         }
@@ -3926,7 +3926,7 @@ var Updates = class {
 };
 
 // src/version.ts
-var VERSION = "0.4.1";
+var VERSION = "0.4.2";
 
 // src/metadata-presentation.ts
 var metadataProperties = {

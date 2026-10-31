@@ -129,7 +129,8 @@ export class SearchBroker {
         })
       } catch (error) {
         if (remember) {
-          try { await this.ctx.settings.update(NS, { nativeSearchProvider: snapshot.nativeSearchProvider }, this.section().revision) }
+          // Do not undo a newer settings edit: the successful write above advances the revision once.
+          try { await this.ctx.settings.update(NS, { nativeSearchProvider: snapshot.nativeSearchProvider }, revision + 1) }
           catch { /* The web edit failed first. Keep that error if the restore also fails. */ }
         }
         throw error
